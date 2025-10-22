@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ReliefWeb Annotation Tool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --primary:#673ab7;
+    --ok:#81c784;
+    --no:#e57373;
+    --muted:#e0e0e0;
+    --ink:#222;
+    --bg:#fafafa;
+    --card:#fff;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--ink); margin:0; }
+  header { background: var(--primary); color:#fff; padding: 12px 20px; font-size: 1.1rem; font-weight: 600; }
+  main { padding: 16px; max-width: 1100px; margin:auto; position: relative; }
+  .bar { display:flex; flex-wrap: wrap; align-items:center; gap:8px; margin-bottom: 12px; }
+  button { border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; background: var(--muted); }
+  button.primary { background: var(--primary); color:#fff; }
+  button.ghost { background: transparent; border:1px solid #ddd; }
+  button.ok { background: var(--ok); color:#fff; }
+  button.no { background: var(--no); color:#fff; }
+  button.toggle-on { outline: 2px solid #000; }
+  .pill { padding: 6px 10px; border-radius: 999px; background:#f1f1f1; }
+  .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .card { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .itemBox { border-top:1px solid #eee; padding-top:10px; margin-top:10px; }
+  .hl { background: #ffeb3b; }
+  #progress { margin-left: 8px; color:#555; }
+  /* Drawer (slide-in) */
+  .drawer {
+    position: fixed; top:0; right:-100%; height:100vh; width:min(560px, 92vw);
+    background: #fff; box-shadow: -12px 0 24px rgba(0,0,0,.12);
+    transition: right .22s ease; z-index: 9999; display:flex; flex-direction: column;
+  }
+  .drawer.open { right:0; }
+  .drawer header { background:#fff; color:#000; border-bottom:1px solid #eee; font-size:1rem; display:flex; align-items:center; justify-content:space-between; padding:10px 14px; }
+  .drawer .body { padding: 12px 14px; overflow:auto; }
+  .drawer .subtle { color:#666; font-size:.85rem; }
+  /* Split mode (dock half-screen) */
+  .split { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  .split .left, .split .right { min-height: 70vh; }
+  .hidden { display:none; }
+  .link { color: var(--primary); text-decoration: none; font-weight: 600; }
+  .link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>ReliefWeb Annotation Tool</header>
+
+<main id="root">
+  <div class="bar">
+    <button id="loadBtn" class="primary">📂 Load Assignment JSON</button>
+    <button id="prevBtn" class="ghost">⬅ Prev</button>
+    <button id="nextBtn" class="ghost">Next ➡</button>
+    <button id="jumpBtn" class="ghost">Jump to…</button>
+    <button id="exportBtn" class="primary">💾 Export JSONL</button>
+    <span id="progress"></span>
+    <span class="pill" id="idLabel"></span>
+  </div>
+
+  <div class="bar">
+    <a id="openReliefBtn" class="link" href="#" target="_blank" rel="noopener">Open on ReliefWeb ↗</a>
+  </div>
+
+  <div id="content" class="row">
+    <div id="leftCol" class="left">
+      <div id="queryBox" class="card"></div>
+
+      <div id="annotBox" class="card"></div>
+    </div>
+
+    <div id="rightCol" class="right hidden">
+      <div id="reportCard" class="card"></div>
+    </div>
+  </div>
+</main>
+
+<aside id="drawer" class="drawer" aria-hidden="true">
+  <header>
+    <div>
+      <strong>Report</strong>
+      <span id="drawerReportId" class="subtle"></span>
+    </div>
+    <div>
+      <button id="drawerClose" class="ghost">✖</button>
+    </div>
+  </header>
+  <div class="body">
+    <div class="subtle" style="margin-bottom:8px;">Evidence strings are highlighted.</div>
+    <div id="drawerReport"></div>
+  </div>
+</aside>
+
+<script>
+  let data = [];
+  let idx = 0;
+  let answers = {};
+  const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
+
+  const $ = (id)=>document.getElementById(id);
+
+  function saveProgress(){ localStorage.setItem("annotation_answers", JSON.stringify(answers)); }
+  function loadProgress(){
+    try { answers = JSON.parse(localStorage.getItem("annotation_answers")||"{}"); }
+    catch { answers = {}; }
+  }
+
+  function setIdx(n){
+    if(!data.length) return;
+    if(n<0 || n>=data.length) return;
+    idx = n;
+    render();
+  }
+
+  function percentDone(){
+    if(!data.length) return 0;
+    let done = 0;
+    for(const s of data){
+      const k = keyOf(s);
+      const a = answers[k];
+      if(!a) continue;
+      const okItems = Array.isArray(a.items) && s.items && a.items.length===s.items.length && a.items.every(v=>v==='Support'||v==='Not-Support');
+      if(okItems && (a.bottom_line==='Relevant'||a.bottom_line==='Irrelevant') && (a.align==='Yes'||a.align==='No')){
+        done++;
+      }
+    }
+    return Math.round(100*done/data.length);
+  }
+
+  function highlight(reportText, evidences){
+    if(!reportText) return "(No report text available)";
+    let html = reportText;
+    const uniq = [...new Set((evidences||[]).filter(Boolean))].sort((a,b)=>b.length-a.length);
+    for(const ev of uniq){
+      try{
+        const esc = ev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(esc, 'gi');
+        html = html.replace(re, `<span class="hl">$&</span>`);
+      }catch(e){}
+    }
+    return html.replace(/\n/g, "<br>");
+  }
+
+  function render(){
+    if(!data.length) return;
+
+    const sample = data[idx];
+    const key = keyOf(sample);
+    const pack = answers[key] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+    answers[key] = pack;
+
+    $("progress").textContent = `Item ${idx+1} / ${data.length} — ${percentDone()}% done`;
+    $("idLabel").textContent = `Query ${sample.timeline_query_id} | Report ${sample.report_id}`;
+    $("openReliefBtn").href = `https://reliefweb.int/node/${sample.report_id}`;
+
+    // Query card
+    $("queryBox").innerHTML = `
+      <h3 style="margin:0 0 8px 0;">Timeline Query</h3>
+      <ol style="margin:0; padding-left: 22px;">
+        ${(sample.timeline_query||[]).map(s=>`<li>${escapeHtml(s)}</li>`).join("")}
+      </ol>
+    `;
+
+    // Annotation card
+    const items = sample.items || [];
+    let html = `<h3 style="margin:0 0 10px 0;">Per-Statement Judgments</h3>`;
+    items.forEach((it,i)=>{
+      const v = pack.items[i];
+      html += `
+        <div class="itemBox">
+          <div><b>${i+1}. Hypothesis:</b> ${escapeHtml(it.hypothesis||'')}</div>
+          <div style="color:#666; font-size:.92rem;"><b>Evidence (quoted):</b> ${escapeHtml(it.evidence||'(none)')}</div>
+          <div style="margin-top:6px;">
+            <button class="${v==='Support'?'ok':''}" onclick="setVerdict(${i}, 'Support')">Support</button>
+            <button class="${v==='Not-Support'?'no':''}" onclick="setVerdict(${i}, 'Not-Support')">Not-Support</button>
+          </div>
+        </div>`;
+    });
+
+    // Alignment buttons
+    html += `
+      <div class="itemBox" style="border-top:none;">
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          <div><b>Timeline alignment:</b></div>
+          <div>
+            <button id="alYes" class="${pack.align==='Yes'?'toggle-on':''}" onclick="setAlign('Yes')">Yes</button>
+            <button id="alNo" class="${pack.align==='No'?'toggle-on':''}" onclick="setAlign('No')">No</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Bottom line buttons
+    html += `
+      <div class="itemBox" style="border-top:none;">
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          <div><b>Bottom line:</b></div>
+          <div>
+            <button id="blRel" class="${pack.bottom_line==='Relevant'?'ok':''}" onclick="setBottom('Relevant')">Relevant</button>
+            <button id="blIrrel" class="${pack.bottom_line==='Irrelevant'?'no':''}" onclick="setBottom('Irrelevant')">Irrelevant</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $("annotBox").innerHTML = html;
+
+    // Report card (for split-mode right column)
+    const evidences = items.map(it=>it.evidence||'');
+    $("reportCard").innerHTML = `
+      <h3 style="margin:0 0 8px 0;">Report (ID: ${sample.report_id})</h3>
+      <div style="color:#666; font-size:.9rem; margin-bottom:6px;">Evidence strings are highlighted.</div>
+      <div>${highlight(escapeHtml(sample.report_text||''), evidences)}</div>
+    `;
+
+    // Drawer content (for slide-in)
+    $("drawerReportId").textContent = `#${sample.report_id}`;
+    $("drawerReport").innerHTML = highlight(escapeHtml(sample.report_text||''), evidences);
+  }
+
+  function escapeHtml(str){
+    return (str||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function setVerdict(i, val){
+    const sample = data[idx];
+    const k = keyOf(sample);
+    answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+    answers[k].items[i] = val;
+    saveProgress(); render();
+  }
+  function setAlign(val){
+    const sample = data[idx];
+    const k = keyOf(sample);
+    answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+    answers[k].align = val;
+    saveProgress(); render();
+  }
+  function setBottom(val){
+    const sample = data[idx];
+    const k = keyOf(sample);
+    answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+    answers[k].bottom_line = val;
+    saveProgress(); render();
+  }
+
+  // ===== UI events =====
+  $("loadBtn").addEventListener("click", async ()=>{
+    // file picker
+    const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+    const file = await fileHandle.getFile();
+    const text = await file.text();
+    data = JSON.parse(text);
+    loadProgress();
+    idx = 0; render();
+  });
+
+  document.addEventListener("click", (e)=>{
+    const t = e.target;
+    if(t.id==="nextBtn") setIdx(idx+1);
+    if(t.id==="prevBtn") setIdx(idx-1);
+    if(t.id==="jumpBtn"){
+      const n = prompt(`Jump to index (1..${data.length})`);
+      if(!n) return;
+      const j = Number(n)-1; if(!Number.isFinite(j)) return;
+      setIdx(j);
+    }
+    if(t.id==="exportBtn"){
+      const out = [];
+      for(const sample of data){
+        const k = keyOf(sample);
+        const a = answers[k] || {};
+        const rec = {
+          timeline_query_id: sample.timeline_query_id,
+          report_id: sample.report_id,
+          response: buildMarkdownResponse(sample, a),
+          parsed_response: buildParsed(sample, a),
+          timeline_alignment: a.align || ""
+        };
+        out.push(JSON.stringify(rec));
+      }
+      const blob = new Blob([out.join("\n")], {type:'application/x-ndjson'});
+      const url = URL.createObjectURL(blob);
+      const aEl = document.createElement('a');
+      aEl.href = url; aEl.download = 'annotations.jsonl'; aEl.click();
+      URL.revokeObjectURL(url);
+    }
+  });
+
+  function buildMarkdownResponse(sample, a){
+    let lines = [];
+    lines.push(`**Timeline Alignment:** ${a.align||''}`);
+    lines.push('');
+    (sample.items||[]).forEach((it, i)=>{
+      lines.push(`## Step ${i+1}: Assess statement`);
+      lines.push(`* **Hypothesis**: ${it.hypothesis||''}`);
+      lines.push(`* **Evidence**: ${it.evidence||''}`);
+      lines.push(`* **Verdict**: **${(a.items&&a.items[i])||''}**`);
+      lines.push('');
+    });
+    lines.push(`The final answer is: $\\boxed{${a.bottom_line||''}}$`);
+    return lines.join('\n');
+  }
+
+  function buildParsed(sample, a){
+    return {
+      items: (sample.items||[]).map((it, i)=>({
+        hypothesis: it.hypothesis||'',
+        evidence: it.evidence||'',
+        verdict: (a.items&&a.items[i])||''
+      })),
+      bottom_line: a.bottom_line||''
+    };
+  }
+</script>
+</body>
+</html>
