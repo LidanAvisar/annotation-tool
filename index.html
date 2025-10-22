@@ -235,20 +235,85 @@
     answers[k].items[i] = val;
     saveProgress(); render();
   }
+  
   function setAlign(val){
     const sample = data[idx];
     const k = keyOf(sample);
     answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
     answers[k].align = val;
+    
+    // If 'No' is clicked for alignment, automatically set bottom line to Irrelevant
+    if (val === 'No') {
+      answers[k].bottom_line = 'Irrelevant';
+    }
+    
     saveProgress(); render();
   }
+
+  // ===== START CHANGES =====
   function setBottom(val){
     const sample = data[idx];
     const k = keyOf(sample);
     answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+    const pack = answers[k];
+    const items = sample.items || [];
+    const hasHypotheses = items.length > 0;
+
+    // --- START VALIDATION LOGIC ---
+
+    // --- 'Relevant' Rule (Rule 1 from previous prompt) ---
+    if (val === 'Relevant') {
+      // 'allSupport' is true if all items are 'Support', or if there are no items to check.
+      const allSupport = hasHypotheses ? (pack.items.length === items.length && pack.items.every(h => h === 'Support')) : true;
+      const alignmentIsYes = pack.align === 'Yes';
+      
+      let errors = [];
+      if (!allSupport) {
+        errors.push("• לא כל ההיפותזות סומנו כ-'Support'.");
+      }
+      if (!alignmentIsYes) {
+        errors.push("• 'Timeline alignment' אינו 'Yes'.");
+      }
+      
+      if (errors.length > 0) {
+        alert("לא ניתן לסמן 'Relevant'.\nכדי לסמן 'Relevant', יש לעמוד בתנאים הבאים:\n\n" + errors.join("\n"));
+        return; // Stop processing
+      }
+    }
+
+    // --- 'Irrelevant' Rules (Combined) ---
+    if (val === 'Irrelevant') {
+      
+      // --- NEW Rule 1 (from this prompt) ---
+      // Cannot mark 'Irrelevant' without a clear reason (either a 'Not-Support' or 'Align No')
+      const atLeastOneNotSupport = pack.items.some(h => h === 'Not-Support');
+      const alignmentIsNo = pack.align === 'No';
+      
+      if (!atLeastOneNotSupport && !alignmentIsNo) {
+        alert("לא ניתן לסמן 'Irrelevant'.\nיש לסמן 'Irrelevant' רק אם לפחות היפותזה אחת היא 'Not-Support' או אם 'Timeline alignment' הוא 'No'.");
+        return; // Stop processing
+      }
+
+      // --- NEW Rule 2 (from this prompt) ---
+      // Cannot mark 'Irrelevant' if only one 'Support' exists and others are null
+      const numSupport = pack.items.filter(h => h === 'Support').length;
+      const numNull = pack.items.filter(h => h === null).length;
+      const totalItems = pack.items.length;
+      // This is true if (and only if) there is 1 support and the rest are null
+      const oneSupportAndRestNull = hasHypotheses && (numSupport === 1) && ((numSupport + numNull) === totalItems);
+
+      if (oneSupportAndRestNull) {
+        alert("לא ניתן לסמן 'Irrelevant'.\nנראה שרק היפותזה אחת סומנה כ-'Support' ושאר ההיפותזות לא סומנו.\nאנא סיים לסמן את כל ההיפותזות.");
+        return; // Stop processing
+      }
+    }
+    // --- END VALIDATION LOGIC ---
+
     answers[k].bottom_line = val;
-    saveProgress(); render();
+    saveProgress(); 
+    render();
   }
+  // ===== END CHANGES =====
 
   // ===== UI events =====
   $("loadBtn").addEventListener("click", async ()=>{
@@ -263,14 +328,47 @@
 
   document.addEventListener("click", (e)=>{
     const t = e.target;
-    if(t.id==="nextBtn") setIdx(idx+1);
+    
+    if(t.id==="nextBtn"){
+      const sample = data[idx];
+      if (!sample) return; // Safety check
+      
+      const k = keyOf(sample);
+      const a = answers[k] || { items: [], bottom_line: null };
+      
+      // Check if at least one hypothesis is answered (only if there are hypotheses to answer)
+      const hasHypothesisItems = (sample.items && sample.items.length > 0);
+      const atLeastOneAnswered = hasHypothesisItems
+                            ? a.items.some(v => v === 'Support' || v === 'Not-Support') 
+                            : true; // Pass check if there are no items
+      
+      // Check if bottom line is answered
+      const hasBottomLine = a.bottom_line === 'Relevant' || a.bottom_line === 'Irrelevant';
+      
+      let errors = [];
+      if (hasHypothesisItems && !atLeastOneAnswered) {
+        errors.push("• יש לענות לפחות על היפותזה אחת (Support / Not-Support).");
+      }
+      if (!hasBottomLine) {
+        errors.push("• יש לבחור 'Bottom line' (Relevant / Irrelevant).");
+      }
+      
+      if (errors.length > 0) {
+        alert("אנא השלם את השדות הבאים לפני המעבר:\n\n" + errors.join("\n"));
+      } else {
+        setIdx(idx + 1); // Only advance if valid
+      }
+    }
+
     if(t.id==="prevBtn") setIdx(idx-1);
+    
     if(t.id==="jumpBtn"){
       const n = prompt(`Jump to index (1..${data.length})`);
       if(!n) return;
       const j = Number(n)-1; if(!Number.isFinite(j)) return;
       setIdx(j);
     }
+    
     if(t.id==="exportBtn"){
       const out = [];
       for(const sample of data){
