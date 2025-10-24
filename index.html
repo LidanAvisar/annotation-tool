@@ -17,7 +17,7 @@
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--ink); margin:0; }
   header { background: var(--primary); color:#fff; padding: 12px 20px; font-size: 1.1rem; font-weight: 600; }
-  main { padding: 16px; max-width: 1100px; margin:auto; position: relative; }
+  main { padding: 16px; max-width: 95%; margin:auto; position: relative; }
   .bar { display:flex; flex-wrap: wrap; align-items:center; gap:8px; margin-bottom: 12px; }
   button { border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; background: var(--muted); }
   button.primary { background: var(--primary); color:#fff; }
@@ -26,24 +26,62 @@
   button.no { background: var(--no); color:#fff; }
   button.toggle-on { outline: 2px solid #000; }
   .pill { padding: 6px 10px; border-radius: 999px; background:#f1f1f1; }
-  .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
   .card { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
   .itemBox { border-top:1px solid #eee; padding-top:10px; margin-top:10px; }
   .hl { background: #ffeb3b; }
   #progress { margin-left: 8px; color:#555; }
-  /* Drawer (slide-in) */
-  .drawer {
-    position: fixed; top:0; right:-100%; height:100vh; width:min(560px, 92vw);
-    background: #fff; box-shadow: -12px 0 24px rgba(0,0,0,.12);
-    transition: right .22s ease; z-index: 9999; display:flex; flex-direction: column;
+  
+  /* ===== START NEW/MODIFIED STYLES ===== */
+  
+  .itemBox > div:first-of-type {
+    font-weight: 600;
   }
-  .drawer.open { right:0; }
-  .drawer header { background:#fff; color:#000; border-bottom:1px solid #eee; font-size:1rem; display:flex; align-items:center; justify-content:space-between; padding:10px 14px; }
-  .drawer .body { padding: 12px 14px; overflow:auto; }
-  .drawer .subtle { color:#666; font-size:.85rem; }
-  /* Split mode (dock half-screen) */
-  .split { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-  .split .left, .split .right { min-height: 70vh; }
+  
+  .evidence-quote {
+    color: #333;
+    font-size: 0.95rem;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #f7f7f7;
+    border-radius: 4px;
+    border: 1px solid #e5e5e5;
+    font-family: 'Menlo', 'Consolas', monospace;
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  
+  /* ===== START STYLE CHANGE ===== */
+  /* CSS for the evidence number (More visible) */
+  .hl-number { 
+    display: inline-block; /* Allows padding */
+    background: var(--primary); /* Use primary color */
+    color: #fff; /* White text */
+    font-weight: 700; 
+    font-size: 0.85em; /* A bit larger */
+    padding: 1px 5px; /* Padding for tag look */
+    border-radius: 4px; /* Rounded corners */
+    vertical-align: super; /* Aligns nicely above baseline */
+    margin-left: 4px; /* Space from the highlight */
+    line-height: 1; /* Ensure tight line height */
+  }
+  /* ===== END STYLE CHANGE ===== */
+  
+  .split { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .split .left, .split .right { 
+    min-height: 70vh;
+  }
+  .right {
+    height: 85vh;
+    position: sticky;
+    top: 16px;
+  }
+  #reportCard {
+    height: 100%;
+    overflow-y: auto;
+  }
+  /* ===== END NEW/MODIFIED STYLES ===== */
+  
   .hidden { display:none; }
   .link { color: var(--primary); text-decoration: none; font-weight: 600; }
   .link:hover { text-decoration: underline; }
@@ -55,7 +93,8 @@
 
 <main id="root">
   <div class="bar">
-    <button id="loadBtn" class="primary">📂 Load Assignment JSON</button>
+    <button id="loadBtn" class="primary">📂 1. Load Assignment JSON</button>
+    <button id="loadReportsBtn" class="primary">📚 2. Load Reports JSONL</button>
     <button id="prevBtn" class="ghost">⬅ Prev</button>
     <button id="nextBtn" class="ghost">Next ➡</button>
     <button id="jumpBtn" class="ghost">Jump to…</button>
@@ -68,37 +107,23 @@
     <a id="openReliefBtn" class="link" href="#" target="_blank" rel="noopener">Open on ReliefWeb ↗</a>
   </div>
 
-  <div id="content" class="row">
+  <div id="content" class="split">
     <div id="leftCol" class="left">
       <div id="queryBox" class="card"></div>
-
       <div id="annotBox" class="card"></div>
     </div>
 
-    <div id="rightCol" class="right hidden">
-      <div id="reportCard" class="card"></div>
+    <div id="rightCol" class="right">
+      <div id="reportCard" class="card">
+        Please load assignment and reports files...
+      </div>
     </div>
   </div>
 </main>
 
-<aside id="drawer" class="drawer" aria-hidden="true">
-  <header>
-    <div>
-      <strong>Report</strong>
-      <span id="drawerReportId" class="subtle"></span>
-    </div>
-    <div>
-      <button id="drawerClose" class="ghost">✖</button>
-    </div>
-  </header>
-  <div class="body">
-    <div class="subtle" style="margin-bottom:8px;">Evidence strings are highlighted.</div>
-    <div id="drawerReport"></div>
-  </div>
-</aside>
-
 <script>
   let data = [];
+  let reportsDb = {};
   let idx = 0;
   let answers = {};
   const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
@@ -133,22 +158,54 @@
     return Math.round(100*done/data.length);
   }
 
-  function highlight(reportText, evidences){
+  function highlight(reportText, evidenceItems){
     if(!reportText) return "(No report text available)";
     let html = reportText;
-    const uniq = [...new Set((evidences||[]).filter(Boolean))].sort((a,b)=>b.length-a.length);
-    for(const ev of uniq){
-      try{
-        const esc = ev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(esc, 'gi');
-        html = html.replace(re, `<span class="hl">$&</span>`);
-      }catch(e){}
+    
+    const evidenceMap = new Map();
+    for (const ev of (evidenceItems || []).filter(ev => ev.text)) {
+      const text = ev.text;
+      if (!evidenceMap.has(text)) {
+        evidenceMap.set(text, []);
+      }
+      if (!evidenceMap.get(text).includes(ev.number)) {
+          evidenceMap.get(text).push(ev.number);
+      }
     }
+    
+    const sortedEvidences = Array.from(evidenceMap.entries()).map(([text, numbers]) => ({ 
+      text, 
+      numbers: numbers.sort((a,b) => a - b)
+    }));
+    sortedEvidences.sort((a, b) => b.text.length - a.text.length);
+
+    for(const ev of sortedEvidences){
+      try{
+        const escText = escapeHtml(ev.text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(escText, 'gi');
+        
+        const numbersLabel = ev.numbers.map(n => `(${n})`).join('');
+        
+        // ===== START CODE CHANGE =====
+        // Removed the '&nbsp;' to let margin handle spacing
+        const replacement = `<span class="hl">$&</span><strong class="hl-number">${numbersLabel}</strong>`; 
+        // ===== END CODE CHANGE =====
+        
+        html = html.replace(re, replacement);
+      }catch(e){ console.error("Highlight regex error:", e); }
+    }
+    
     return html.replace(/\n/g, "<br>");
   }
 
   function render(){
-    if(!data.length) return;
+    if(!data.length) {
+      $("reportCard").innerHTML = "Please load assignment file...";
+      return;
+    }
+    if(Object.keys(reportsDb).length === 0) {
+      $("reportCard").innerHTML = "Please load reports JSONL file...";
+    }
 
     const sample = data[idx];
     const key = keyOf(sample);
@@ -175,7 +232,7 @@
       html += `
         <div class="itemBox">
           <div><b>${i+1}. Hypothesis:</b> ${escapeHtml(it.hypothesis||'')}</div>
-          <div style="color:#666; font-size:.92rem;"><b>Evidence (quoted):</b> ${escapeHtml(it.evidence||'(none)')}</div>
+          <div class="evidence-quote"><b>Evidence:</b> ${escapeHtml(it.evidence||'(none)')}</div>
           <div style="margin-top:6px;">
             <button class="${v==='Support'?'ok':''}" onclick="setVerdict(${i}, 'Support')">Support</button>
             <button class="${v==='Not-Support'?'no':''}" onclick="setVerdict(${i}, 'Not-Support')">Not-Support</button>
@@ -211,17 +268,26 @@
 
     $("annotBox").innerHTML = html;
 
-    // Report card (for split-mode right column)
-    const evidences = items.map(it=>it.evidence||'');
+    const reportId = sample.report_id;
+    const reportText = reportsDb[reportId] || `(Report ID ${reportId} not found. Please load the correct Reports JSONL file.)`;
+    
+    const evidenceItems = items.map((it, i) => ({ 
+      text: it.evidence || '', 
+      number: i + 1 
+    }));
+    
+    let processedText = escapeHtml(reportText);
+    
+    processedText = processedText.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+    processedText = processedText.replace(/_(.*?)_/g, '<i>$1</i>');
+    
+    let finalHtml = highlight(processedText, evidenceItems);
+
     $("reportCard").innerHTML = `
       <h3 style="margin:0 0 8px 0;">Report (ID: ${sample.report_id})</h3>
       <div style="color:#666; font-size:.9rem; margin-bottom:6px;">Evidence strings are highlighted.</div>
-      <div>${highlight(escapeHtml(sample.report_text||''), evidences)}</div>
+      <div style="word-break: break-word;">${finalHtml}</div>
     `;
-
-    // Drawer content (for slide-in)
-    $("drawerReportId").textContent = `#${sample.report_id}`;
-    $("drawerReport").innerHTML = highlight(escapeHtml(sample.report_text||''), evidences);
   }
 
   function escapeHtml(str){
@@ -242,7 +308,6 @@
     answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
     answers[k].align = val;
     
-    // If 'No' is clicked for alignment, automatically set bottom line to Irrelevant
     if (val === 'No') {
       answers[k].bottom_line = 'Irrelevant';
     }
@@ -250,7 +315,6 @@
     saveProgress(); render();
   }
 
-  // ===== START CHANGES =====
   function setBottom(val){
     const sample = data[idx];
     const k = keyOf(sample);
@@ -259,11 +323,8 @@
     const items = sample.items || [];
     const hasHypotheses = items.length > 0;
 
-    // --- START VALIDATION LOGIC ---
-
-    // --- 'Relevant' Rule (Rule 1 from previous prompt) ---
+    // --- 'Relevant' Rule ---
     if (val === 'Relevant') {
-      // 'allSupport' is true if all items are 'Support', or if there are no items to check.
       const allSupport = hasHypotheses ? (pack.items.length === items.length && pack.items.every(h => h === 'Support')) : true;
       const alignmentIsYes = pack.align === 'Yes';
       
@@ -277,53 +338,78 @@
       
       if (errors.length > 0) {
         alert("לא ניתן לסמן 'Relevant'.\nכדי לסמן 'Relevant', יש לעמוד בתנאים הבאים:\n\n" + errors.join("\n"));
-        return; // Stop processing
+        return;
       }
     }
 
-    // --- 'Irrelevant' Rules (Combined) ---
+    // --- 'Irrelevant' Rules ---
     if (val === 'Irrelevant') {
-      
-      // --- NEW Rule 1 (from this prompt) ---
-      // Cannot mark 'Irrelevant' without a clear reason (either a 'Not-Support' or 'Align No')
       const atLeastOneNotSupport = pack.items.some(h => h === 'Not-Support');
       const alignmentIsNo = pack.align === 'No';
       
       if (!atLeastOneNotSupport && !alignmentIsNo) {
         alert("לא ניתן לסמן 'Irrelevant'.\nיש לסמן 'Irrelevant' רק אם לפחות היפותזה אחת היא 'Not-Support' או אם 'Timeline alignment' הוא 'No'.");
-        return; // Stop processing
+        return;
       }
 
-      // --- NEW Rule 2 (from this prompt) ---
-      // Cannot mark 'Irrelevant' if only one 'Support' exists and others are null
       const numSupport = pack.items.filter(h => h === 'Support').length;
       const numNull = pack.items.filter(h => h === null).length;
       const totalItems = pack.items.length;
-      // This is true if (and only if) there is 1 support and the rest are null
       const oneSupportAndRestNull = hasHypotheses && (numSupport === 1) && ((numSupport + numNull) === totalItems);
 
       if (oneSupportAndRestNull) {
         alert("לא ניתן לסמן 'Irrelevant'.\nנראה שרק היפותזה אחת סומנה כ-'Support' ושאר ההיפותזות לא סומנו.\nאנא סיים לסמן את כל ההיפותזות.");
-        return; // Stop processing
+        return;
       }
     }
-    // --- END VALIDATION LOGIC ---
 
     answers[k].bottom_line = val;
     saveProgress(); 
     render();
   }
-  // ===== END CHANGES =====
 
   // ===== UI events =====
   $("loadBtn").addEventListener("click", async ()=>{
-    // file picker
-    const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
-    const file = await fileHandle.getFile();
-    const text = await file.text();
-    data = JSON.parse(text);
-    loadProgress();
-    idx = 0; render();
+    try {
+      const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      data = JSON.parse(text);
+      loadProgress();
+      idx = 0; 
+      render();
+    } catch(err) { console.error("Error loading assignment file:", err); }
+  });
+
+  $("loadReportsBtn").addEventListener("click", async () => {
+    try {
+      const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSONL', accept:{'application/x-ndjson':['.jsonl'], 'application/json':['.jsonl']}}]});
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      
+      reportsDb = {};
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.trim() === "") continue;
+        try {
+          const report = JSON.parse(line);
+          if (report.id && report.description) {
+            reportsDb[report.id] = report.description;
+          }
+        } catch(e) { console.warn("Failed to parse line:", line, e); }
+      }
+      
+      const count = Object.keys(reportsDb).length;
+      alert(`Reports DB loaded successfully with ${count} reports.`);
+      $("loadReportsBtn").textContent = `📚 Reports DB (${count} loaded)`;
+      
+      if (data.length > 0) {
+        render();
+      }
+    } catch (err) {
+      console.error("Error loading reports file:", err);
+      alert("Could not load reports file. See console for details.");
+    }
   });
 
   document.addEventListener("click", (e)=>{
@@ -331,18 +417,16 @@
     
     if(t.id==="nextBtn"){
       const sample = data[idx];
-      if (!sample) return; // Safety check
+      if (!sample) return;
       
       const k = keyOf(sample);
       const a = answers[k] || { items: [], bottom_line: null };
       
-      // Check if at least one hypothesis is answered (only if there are hypotheses to answer)
       const hasHypothesisItems = (sample.items && sample.items.length > 0);
       const atLeastOneAnswered = hasHypothesisItems
                             ? a.items.some(v => v === 'Support' || v === 'Not-Support') 
-                            : true; // Pass check if there are no items
+                            : true;
       
-      // Check if bottom line is answered
       const hasBottomLine = a.bottom_line === 'Relevant' || a.bottom_line === 'Irrelevant';
       
       let errors = [];
@@ -356,7 +440,7 @@
       if (errors.length > 0) {
         alert("אנא השלם את השדות הבאים לפני המעבר:\n\n" + errors.join("\n"));
       } else {
-        setIdx(idx + 1); // Only advance if valid
+        setIdx(idx + 1);
       }
     }
 
