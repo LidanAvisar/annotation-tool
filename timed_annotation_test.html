@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ReliefWeb Annotation Tool - Timed Assignment</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --primary:#673ab7;
+    --ok:#81c784;
+    --no:#e57373;
+    --muted:#e0e0e0;
+    --ink:#222;
+    --bg:#fafafa;
+    --card:#fff;
+    --timer-bg: #fff3e0; /* Light orange for timer */
+    --timer-text: #e65100; /* Dark orange text */
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--ink); margin:0; }
+  header { background: var(--primary); color:#fff; padding: 12px 20px; font-size: 1.1rem; font-weight: 600; }
+  main { padding: 16px; max-width: 95%; margin:auto; position: relative; }
+  .bar { display:flex; flex-wrap: wrap; align-items:center; gap:8px; margin-bottom: 12px; }
+  button { border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; background: var(--muted); }
+  button:disabled { background: #e0e0e0; cursor: not-allowed; color: #9e9e9e; }
+  button.primary { background: var(--primary); color:#fff; }
+  button.ghost { background: transparent; border:1px solid #ddd; }
+  button.ok { background: var(--ok); color:#fff; }
+  button.no { background: var(--no); color:#fff; }
+  button.toggle-on { outline: 2px solid #000; }
+  .pill { padding: 6px 10px; border-radius: 999px; background:#f1f1f1; }
+  .card { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .itemBox { border-top:1px solid #eee; padding-top:10px; margin-top:10px; }
+  .hl { background: #ffeb3b; }
+  /* #progress removed */
+
+  /* Timer Display */
+  #timerBox {
+    margin-left: auto; /* Push timer to the right */
+    padding: 6px 12px;
+    background: var(--timer-bg);
+    color: var(--timer-text);
+    font-weight: bold;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+
+  .itemBox > div:first-of-type {
+    font-weight: 600;
+  }
+
+  .evidence-quote {
+    color: #333;
+    font-size: 0.95rem;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #f7f7f7;
+    border-radius: 4px;
+    border: 1px solid #e5e5e5;
+    font-family: 'Menlo', 'Consolas', monospace;
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .hl-number {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    vertical-align: super;
+    margin-left: 4px;
+    line-height: 1;
+  }
+
+  .split { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .split .left, .split .right {
+    min-height: 70vh;
+  }
+  .right {
+    height: 85vh;
+    position: sticky;
+    top: 16px;
+  }
+  #reportCard {
+    height: 100%;
+    overflow-y: auto;
+  }
+
+  .hidden { display:none; }
+  .link { color: var(--primary); text-decoration: none; font-weight: 600; }
+  .link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>ReliefWeb Annotation Tool - Timed Assignment</header>
+
+<main id="root">
+  <div class="bar">
+    <button id="loadBtn" class="primary">📂 1. Load Assignment & Start Timer</button> <button id="loadReportsBtn" class="primary">📚 2. Load Reports JSONL</button>
+    <button id="prevBtn" class="ghost" disabled>⬅ Prev</button>
+    <button id="nextBtn" class="ghost" disabled>Next ➡</button>
+    <button id="jumpBtn" class="ghost" disabled>Jump to…</button>
+    <button id="exportBtn" class="primary" disabled>💾 Finish & Export Early</button> <span class="pill" id="idLabel"></span>
+    <span id="timerBox" class="hidden">⏳ --:--</span>
+  </div>
+
+  <div class="bar">
+    <a id="openReliefBtn" class="link" href="#" target="_blank" rel="noopener">Open on ReliefWeb ↗</a>
+  </div>
+
+  <div id="content" class="split">
+    <div id="leftCol" class="left">
+      <div id="queryBox" class="card"></div>
+      <div id="annotBox" class="card"></div>
+    </div>
+
+    <div id="rightCol" class="right">
+      <div id="reportCard" class="card">
+        Please load assignment and reports files to begin.
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  let data = [];
+  let reportsDb = {};
+  let idx = 0;
+  let answers = {};
+  let startTime = null;
+  let endTime = null;
+  let timerId = null;
+  let intervalId = null;
+  const ASSIGNMENT_DURATION_MINUTES = 60;
+
+  const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
+
+  const $ = (id)=>document.getElementById(id);
+
+  // --- Timer Functions ---
+  function startTimer(durationMillis) {
+    clearTimeout(timerId);
+    clearInterval(intervalId);
+    $("timerBox").classList.remove('hidden');
+
+    endTime = new Date(Date.now() + durationMillis);
+    localStorage.setItem("annotation_endTime", endTime.getTime());
+
+    timerId = setTimeout(forceExportAndEndTask, durationMillis);
+    updateTimerDisplay(); // Initial display
+    intervalId = setInterval(updateTimerDisplay, 1000);
+  }
+
+  function updateTimerDisplay() {
+    if (!endTime) return;
+    const now = Date.now();
+    const remainingMillis = endTime.getTime() - now;
+
+    if (remainingMillis <= 0) {
+      $("timerBox").textContent = "Time's Up!";
+      clearInterval(intervalId);
+    } else {
+      const remainingSeconds = Math.floor(remainingMillis / 1000);
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      $("timerBox").textContent = `⏳ ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    }
+  }
+
+  function stopTimer() {
+      clearTimeout(timerId);
+      clearInterval(intervalId);
+      timerId = null;
+      intervalId = null;
+      endTime = null; // Clear end time as well
+      // Keep start time in local storage until explicitly cleared on new load or error
+      localStorage.removeItem("annotation_endTime");
+      $("timerBox").classList.add('hidden');
+  }
+
+ function forceExportAndEndTask() {
+      if (!data || data.length === 0) return;
+
+      // Only show alert if timer actually ran out (not manual export)
+      if (Date.now() >= (endTime?.getTime() || 0)) {
+         alert("Time is up! Your work is being automatically exported.");
+      }
+      clearInterval(intervalId);
+      $("timerBox").textContent = "Exporting...";
+
+      let durationMinutes = null;
+      if (startTime) {
+          const actualEndTime = endTime || new Date(); // Use calculated end time or now for manual export
+          durationMinutes = Math.round((actualEndTime.getTime() - startTime.getTime()) / (1000 * 60));
+          // Cap duration at the maximum allowed time
+          if (durationMinutes > ASSIGNMENT_DURATION_MINUTES) {
+              durationMinutes = ASSIGNMENT_DURATION_MINUTES;
+          } else if (durationMinutes < 0) {
+              durationMinutes = 0; // Avoid negative duration if clocks are weird
+          }
+      }
+
+      const out = [];
+      let annotatedCount = 0;
+      for(let i=0; i <= idx; i++){ // Only export items up to the current index
+        const sample = data[i];
+        if (!sample) continue; // Safety check
+
+        const k = keyOf(sample);
+        const a = answers[k];
+        // Check if *this specific item* has any annotation
+        const isAnnotated = a && (a.align || a.bottom_line || (a.items && a.items.some(it => it !== null)));
+
+        if (isAnnotated) {
+            annotatedCount++;
+            const timeline_alignment = a.align || "";
+            const rec = {
+              timeline_query_id: sample.timeline_query_id,
+              report_id: sample.report_id,
+              response: buildMarkdownResponse(sample, a),
+              parsed_response: buildParsed(sample, a),
+              timeline_alignment: timeline_alignment,
+              duration_minutes: durationMinutes // Same duration for all exported items
+            };
+            out.push(JSON.stringify(rec));
+        }
+      }
+
+      if (out.length > 0) {
+          const blob = new Blob([out.join("\n")], {type:'application/x-ndjson'});
+          const url = URL.createObjectURL(blob);
+          const aEl = document.createElement('a');
+          aEl.href = url;
+          // Use a consistent name regardless of manual or auto export
+          aEl.download = 'annotations_export.jsonl';
+          aEl.click();
+          URL.revokeObjectURL(url);
+          console.log(`Exported ${annotatedCount} items. Duration: ${durationMinutes} mins.`);
+          $("timerBox").textContent = "Finished & Exported";
+      } else {
+          console.log("Export triggered, but no annotations found to save.");
+           $("timerBox").textContent = "Finished (No annotations)";
+           alert("No annotations were made to export."); // Inform user
+      }
+
+      disableUI();
+      // Clear timer info from storage after export
+      localStorage.removeItem("annotation_startTime");
+      localStorage.removeItem("annotation_endTime");
+  }
+
+
+  function disableUI() {
+      $("loadBtn").disabled = true;
+      $("loadReportsBtn").disabled = true;
+      $("prevBtn").disabled = true;
+      $("nextBtn").disabled = true;
+      $("jumpBtn").disabled = true;
+      $("exportBtn").disabled = true;
+      document.querySelectorAll('#annotBox button').forEach(btn => btn.disabled = true);
+  }
+
+   function enableUI() {
+      // Don't enable load buttons after start
+      $("prevBtn").disabled = false;
+      $("nextBtn").disabled = false;
+      $("jumpBtn").disabled = false;
+      $("exportBtn").disabled = false;
+      // Annotation buttons will be enabled in render
+  }
+
+  function saveProgress(){ localStorage.setItem("annotation_answers", JSON.stringify(answers)); }
+
+  function loadProgress(){
+    try { answers = JSON.parse(localStorage.getItem("annotation_answers")||"{}"); }
+    catch { answers = {}; }
+
+    const savedEndTime = localStorage.getItem("annotation_endTime");
+    const savedStartTime = localStorage.getItem("annotation_startTime");
+
+    if (savedEndTime && savedStartTime) {
+      startTime = new Date(parseInt(savedStartTime)); // Restore start time
+      const potentialEndTime = new Date(parseInt(savedEndTime));
+      const now = Date.now();
+      const remainingMillis = potentialEndTime.getTime() - now;
+
+      if (remainingMillis <= 0) {
+        endTime = potentialEndTime; // Set for duration calculation
+        forceExportAndEndTask(); // Time ran out while closed
+      } else {
+        enableUI(); // Re-enable controls if resuming
+        startTimer(remainingMillis); // Resume timer
+      }
+    } else {
+        // No active timer, ensure it's hidden and UI is ready for loading
+        $("timerBox").classList.add('hidden');
+        disableUI(); // Keep disabled until loaded
+        $("loadBtn").disabled = false;
+        $("loadReportsBtn").disabled = false;
+    }
+  }
+
+
+  function setIdx(n){
+    if(!data.length) return;
+    if ($("nextBtn").disabled && timerId === null) return; // Prevent nav if task ended
+    if(n<0 || n>=data.length) return;
+    idx = n;
+    render();
+  }
+
+ function highlight(escapedReportHtml, evidenceItems){
+    if(!escapedReportHtml) return "(No report text available)";
+    let html = escapedReportHtml;
+
+    const evidenceMap = new Map();
+    for (const ev of (evidenceItems || []).filter(ev => ev.text)) {
+      const cleanText = ev.text.replace(/\.+$/, '').trim();
+      if (!cleanText) continue;
+
+      if (!evidenceMap.has(cleanText)) {
+        evidenceMap.set(cleanText, []);
+      }
+      if (!evidenceMap.get(cleanText).includes(ev.number)) {
+          evidenceMap.get(cleanText).push(ev.number);
+      }
+    }
+
+    const sortedEvidences = Array.from(evidenceMap.entries()).map(([text, numbers]) => ({
+      text,
+      numbers: numbers.sort((a,b) => a - b)
+    }));
+    sortedEvidences.sort((a, b) => b.text.length - a.text.length);
+
+    for(const ev of sortedEvidences){
+      try{
+        const rawEvidenceTextForRegex = ev.text;
+        if (!rawEvidenceTextForRegex || rawEvidenceTextForRegex.trim() === "") continue;
+
+        const parts = rawEvidenceTextForRegex.match(/\S+/g) || [];
+        if (parts.length === 0) continue;
+
+        const escapedParts = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const flexibleJoiner = '(?:\\s|\\*|_)+';
+        const flexiblePattern = escapedParts.join(flexibleJoiner);
+
+        const re = new RegExp(`(${flexiblePattern})`, 'gi');
+
+        const numbersLabel = ev.numbers.map(n => `(${n})`).join('');
+        const replacement = `<span class="hl">$1</span><strong class="hl-number">${numbersLabel}</strong>`;
+
+        html = html.replace(re, replacement);
+
+      } catch(e) {
+          console.error(`Highlight regex error for evidence: "${ev.text}"`, e);
+      }
+    }
+
+    html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+    html = html.replace(/_(.*?)_/g, '<i>$1</i>');
+
+    return html.replace(/\n/g, "<br>");
+  }
+
+
+  function render(){
+     const savedEndTime = localStorage.getItem("annotation_endTime");
+     if (savedEndTime && parseInt(savedEndTime) < Date.now()) {
+        disableUI();
+        $("timerBox").textContent = "Finished";
+        $("timerBox").classList.remove('hidden');
+        $("reportCard").innerHTML = "Assignment time has ended.";
+        $("queryBox").innerHTML = "";
+        $("annotBox").innerHTML = "";
+        $("idLabel").textContent = "";
+        return;
+     }
+
+    if(!data.length) {
+      $("reportCard").innerHTML = "Please load assignment file...";
+      return;
+    }
+    if(Object.keys(reportsDb).length === 0 && startTime) { // Show this only if timer has started
+      $("reportCard").innerHTML = "Please load reports JSONL file...";
+    }
+
+    const sample = data[idx];
+    if (!sample) {
+        console.error("Invalid index:", idx);
+        return;
+    }
+    const key = keyOf(sample);
+    const expectedItemCount = sample.items?.length || 0;
+    const currentPackRaw = answers[key];
+    const pack = currentPackRaw || { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+
+    if (currentPackRaw && (!currentPackRaw.items || currentPackRaw.items.length !== expectedItemCount)) {
+        const oldItems = currentPackRaw.items || [];
+        pack.items = Array(expectedItemCount).fill(null).map((_, i) => oldItems[i] || null);
+    }
+    if (!pack.items) {
+      pack.items = Array(expectedItemCount).fill(null);
+    }
+    answers[key] = pack;
+
+    // --- Removed Progress Display ---
+    // $("progress").textContent = `Item ${idx+1}`;
+    // --- End Removal ---
+
+    $("idLabel").textContent = `Query ${sample.timeline_query_id} | Report ${sample.report_id}`;
+    $("openReliefBtn").href = `https://reliefweb.int/node/${sample.report_id}`;
+
+    $("queryBox").innerHTML = `
+      <h3 style="margin:0 0 8px 0;">Timeline Query</h3>
+      <ol style="margin:0; padding-left: 22px;">
+        ${(sample.timeline_query||[]).map(s=>`<li>${escapeHtml(s)}</li>`).join("")}
+      </ol>
+    `;
+
+    const items = sample.items || [];
+    let html = `<h3 style="margin:0 0 10px 0;">Per-Statement Judgments</h3>`;
+    items.forEach((it,i)=>{
+       const v = (pack.items && i < pack.items.length) ? pack.items[i] : null;
+      html += `
+        <div class="itemBox">
+          <div><b>${i+1}. Hypothesis:</b> ${escapeHtml(it.hypothesis||'')}</div>
+          <div class="evidence-quote"><b>Evidence:</b> ${escapeHtml(it.evidence||'(none)')}</div>
+          <div style="margin-top:6px;">
+            <button class="${v==='Support'?'ok':''}" onclick="setVerdict(${i}, 'Support')">Support</button>
+            <button class="${v==='Not-Support'?'no':''}" onclick="setVerdict(${i}, 'Not-Support')">Not-Support</button>
+          </div>
+        </div>`;
+    });
+
+    html += `
+      <div class="itemBox" style="border-top:none;">
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          <div><b>Timeline alignment:</b></div>
+          <div>
+            <button id="alYes" class="${pack.align==='Yes'?'toggle-on':''}" onclick="setAlign('Yes')">Yes</button>
+            <button id="alNo" class="${pack.align==='No'?'toggle-on':''}" onclick="setAlign('No')">No</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    html += `
+      <div class="itemBox" style="border-top:none;">
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          <div><b>Bottom line:</b></div>
+          <div>
+            <button id="blRel" class="${pack.bottom_line==='Relevant'?'ok':''}" onclick="setBottom('Relevant')">Relevant</button>
+            <button id="blIrrel" class="${pack.bottom_line==='Irrelevant'?'no':''}" onclick="setBottom('Irrelevant')">Irrelevant</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $("annotBox").innerHTML = html;
+
+    const reportId = sample.report_id;
+    let finalReportHtml = "(Report text not available. Load Reports JSONL file.)";
+    // Display report only if DB has entries
+    if (reportsDb && Object.keys(reportsDb).length > 0) {
+        const reportText = reportsDb[reportId] || `(Report ID ${reportId} not found in loaded reports file.)`;
+
+        const evidenceItemsForHighlight = items.map((it, i) => ({
+          text: it.evidence || '',
+          number: i + 1
+        }));
+
+        let escapedReportHtml = escapeHtml(reportText);
+        finalReportHtml = highlight(escapedReportHtml, evidenceItemsForHighlight);
+    } // else, the default message remains
+
+
+    $("reportCard").innerHTML = `
+      <h3 style="margin:0 0 8px 0;">Report (ID: ${sample.report_id})</h3>
+      <div style="color:#666; font-size:.9rem; margin-bottom:6px;">Evidence strings are highlighted.</div>
+      <div style="word-break: break-word;">${finalReportHtml}</div>
+    `;
+
+    // Ensure annotation buttons are enabled only if UI should be enabled
+    const uiDisabled = $("nextBtn").disabled && timerId === null && localStorage.getItem("annotation_endTime") !== null;
+    document.querySelectorAll('#annotBox button').forEach(btn => btn.disabled = uiDisabled);
+
+  }
+
+
+ function escapeHtml(str){
+    return (str || '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+ }
+
+
+  function setVerdict(i, val){
+    const sample = data[idx];
+     if (!sample || ($("nextBtn").disabled && timerId === null)) return;
+    const k = keyOf(sample);
+     const expectedItemCount = sample.items?.length || 0;
+     if (!answers[k]) {
+       answers[k] = { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+     } else if (!answers[k].items || answers[k].items.length !== expectedItemCount) {
+       const oldItems = answers[k].items || [];
+       answers[k].items = Array(expectedItemCount).fill(null).map((_, j) => oldItems[j] || null);
+     }
+
+     if (i >= 0 && i < answers[k].items.length) {
+       answers[k].items[i] = val;
+       saveProgress();
+       // Re-render only the specific button states to avoid full redraw? Maybe too complex.
+       render(); // Simple full re-render is easier for now.
+     } else {
+        console.error(`Invalid index ${i} for items array of length ${answers[k].items.length}`);
+     }
+  }
+
+  function setAlign(val){
+    const sample = data[idx];
+     if (!sample || ($("nextBtn").disabled && timerId === null)) return;
+    const k = keyOf(sample);
+     const expectedItemCount = sample.items?.length || 0;
+     if (!answers[k]) {
+       answers[k] = { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+     } else if (!answers[k].items || answers[k].items.length !== expectedItemCount) {
+       const oldItems = answers[k].items || [];
+       answers[k].items = Array(expectedItemCount).fill(null).map((_, j) => oldItems[j] || null);
+     }
+    answers[k].align = val;
+
+    if (val === 'No') {
+      answers[k].bottom_line = 'Irrelevant';
+    }
+
+    saveProgress();
+    render();
+  }
+
+
+  function setBottom(val){
+    const sample = data[idx];
+     if (!sample || ($("nextBtn").disabled && timerId === null)) return;
+    const k = keyOf(sample);
+     const expectedItemCount = sample.items?.length || 0;
+      if (!answers[k]) {
+       answers[k] = { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+     } else if (!answers[k].items || answers[k].items.length !== expectedItemCount) {
+       const oldItems = answers[k].items || [];
+       answers[k].items = Array(expectedItemCount).fill(null).map((_, j) => oldItems[j] || null);
+     }
+    const pack = answers[k];
+    const items = sample.items || [];
+    const hasHypotheses = items.length > 0;
+
+    // --- Validation Logic ---
+    if (val === 'Relevant') {
+      const allSupport = hasHypotheses ? (pack.items && pack.items.length === items.length && pack.items.every(h => h === 'Support')) : true;
+      const alignmentIsYes = pack.align === 'Yes';
+
+      let errors = [];
+      if (!allSupport) errors.push("• לא כל ההיפותזות סומנו כ-'Support'.");
+      if (!alignmentIsYes) errors.push("• 'Timeline alignment' אינו 'Yes'.");
+
+      if (errors.length > 0) {
+        alert("לא ניתן לסמן 'Relevant'.\nכדי לסמן 'Relevant', יש לעמוד בתנאים הבאים:\n\n" + errors.join("\n"));
+        return;
+      }
+    }
+
+    if (val === 'Irrelevant') {
+      const atLeastOneNotSupport = pack.items && pack.items.some(h => h === 'Not-Support');
+      const alignmentIsNo = pack.align === 'No';
+
+      if (!atLeastOneNotSupport && !alignmentIsNo) {
+        alert("לא ניתן לסמן 'Irrelevant'.\nיש לסמן 'Irrelevant' רק אם לפחות היפותזה אחת היא 'Not-Support' או אם 'Timeline alignment' הוא 'No'.");
+        return;
+      }
+
+      const numSupport = pack.items ? pack.items.filter(h => h === 'Support').length : 0;
+      const numNull = pack.items ? pack.items.filter(h => h === null).length : items.length;
+      const totalItems = items.length;
+      const oneSupportAndRestNull = hasHypotheses && (numSupport === 1) && ((numSupport + numNull) === totalItems);
+
+
+      if (oneSupportAndRestNull) {
+        alert("לא ניתן לסמן 'Irrelevant'.\nנראה שרק היפותזה אחת סומנה כ-'Support' ושאר ההיפותזות לא סומנו.\nאנא סיים לסמן את כל ההיפותזות.");
+        return;
+      }
+    }
+     // --- End Validation ---
+
+    answers[k].bottom_line = val;
+    saveProgress();
+    render();
+  }
+
+
+  // ===== UI events =====
+  $("loadBtn").addEventListener("click", async ()=>{
+    if (timerId !== null) {
+      alert("Assignment already in progress.");
+      return;
+    }
+    try {
+      const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      data = JSON.parse(text);
+       answers = {};
+       localStorage.removeItem("annotation_answers");
+       startTime = new Date();
+       localStorage.setItem("annotation_startTime", startTime.getTime());
+       startTimer(ASSIGNMENT_DURATION_MINUTES * 60 * 1000);
+       enableUI();
+
+      idx = 0;
+      if (data && data.length > 0) {
+         render();
+      } else {
+         $("reportCard").innerHTML = "Loaded assignment file is empty or invalid.";
+         $("queryBox").innerHTML = "";
+         $("annotBox").innerHTML = "";
+         // $("progress").textContent = ""; // Removed
+         $("idLabel").textContent = "";
+         stopTimer();
+         disableUI(); // Keep UI disabled except load buttons
+         $("loadBtn").disabled = false;
+         $("loadReportsBtn").disabled = false;
+      }
+    } catch(err) {
+      if (err.name !== 'AbortError') {
+         console.error("Error loading assignment file:", err);
+         alert("Error loading assignment file. Please check the file format and console for details.");
+         data = [];
+         answers = {};
+         idx = 0;
+         stopTimer();
+         disableUI();
+         $("loadBtn").disabled = false;
+         $("loadReportsBtn").disabled = false;
+         render();
+      } else {
+        if (!startTime) { // Clear only if timer wasn't actually started
+            localStorage.removeItem("annotation_startTime");
+            localStorage.removeItem("annotation_endTime");
+        }
+      }
+    }
+  });
+
+
+  $("loadReportsBtn").addEventListener("click", async () => {
+    try {
+      const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSONL', accept:{'application/x-ndjson':['.jsonl'], 'application/json':['.jsonl']}}]});
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+
+      reportsDb = {};
+      const lines = text.split('\n');
+      let lineNum = 0;
+      let validReportsCount = 0;
+      for (const line of lines) {
+        lineNum++;
+        if (line.trim() === "") continue;
+        try {
+          const report = JSON.parse(line);
+          if (report.id && typeof report.description === 'string') {
+            reportsDb[report.id] = report.description;
+            validReportsCount++;
+          } else {
+             console.warn(`Report on line ${lineNum} missing 'id' or 'description' is not a string.`);
+          }
+        } catch(e) { console.warn(`Failed to parse line ${lineNum}:`, line, e); }
+      }
+
+      if (validReportsCount > 0) {
+        alert(`Reports DB loaded successfully with ${validReportsCount} reports.`);
+        $("loadReportsBtn").textContent = `📚 Reports DB (${validReportsCount} loaded)`;
+      } else {
+         alert(`Reports DB loaded, but no valid reports found. Please check file format.`);
+         $("loadReportsBtn").textContent = `📚 Load Reports JSONL (Error)`;
+      }
+
+      if (data.length > 0) {
+        render();
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error("Error loading reports file:", err);
+        alert("Could not load reports file. See console for details.");
+      }
+    }
+  });
+
+  document.addEventListener("click", (e)=>{
+    const t = e.target;
+
+    if(t.id==="nextBtn"){
+      validateAndSetIdx(idx + 1);
+    }
+
+    if(t.id==="prevBtn") {
+        setIdx(idx - 1);
+    }
+
+    if(t.id==="jumpBtn"){
+       if (!data || data.length === 0) {
+        alert("Please load an assignment file first.");
+        return;
+      }
+      const currentQueryId = data[idx]?.timeline_query_id;
+      const currentReportId = data[idx]?.report_id;
+      const n = prompt(`Current Query/Report ID: ${currentQueryId}/${currentReportId}. Jump to item number (1-${data.length}):`); // Show IDs instead of index
+      if(!n) return;
+      const j = Number(n)-1;
+      if(!Number.isFinite(j) || j < 0 || j >= data.length) {
+         alert(`Invalid item number. Please enter a number between 1 and ${data.length}.`);
+         return;
+      }
+      setIdx(j);
+    }
+
+    if(t.id==="exportBtn"){
+       if (!data || data.length === 0) {
+        alert("Please load an assignment file first.");
+        return;
+      }
+      if (Object.keys(answers).length === 0) {
+         alert("No annotations have been made yet to export.");
+         return;
+      }
+
+      // Manual Export stops timer and exports
+      stopTimer();
+      forceExportAndEndTask();
+    }
+  });
+
+  function validateAndSetIdx(nextIdx) {
+      const sample = data[idx];
+      if (!sample) return;
+
+      const k = keyOf(sample);
+      const a = answers[k] || { items: Array(sample.items?.length||0).fill(null), bottom_line: null, align: null };
+
+      const hasHypothesisItems = (sample.items && sample.items.length > 0);
+      const currentItems = a.items || [];
+      const allItemsAnswered = hasHypothesisItems
+                            ? currentItems.length === sample.items.length && currentItems.every(v => v === 'Support' || v === 'Not-Support')
+                            : true;
+
+      const hasBottomLine = a.bottom_line === 'Relevant' || a.bottom_line === 'Irrelevant';
+      const hasAlignment = a.align === 'Yes' || a.align === 'No';
+
+      let errors = [];
+      if (hasHypothesisItems && !allItemsAnswered) {
+        errors.push("• יש לענות על כל ההיפותזות (Support / Not-Support).");
+      }
+      if (!hasAlignment) {
+        errors.push("• יש לבחור 'Timeline alignment' (Yes / No).");
+      }
+      if (!hasBottomLine) {
+        errors.push("• יש לבחור 'Bottom line' (Relevant / Irrelevant).");
+      }
+
+
+      if (errors.length > 0) {
+        alert("אנא השלם את כל השדות הבאים לפני המעבר:\n\n" + errors.join("\n"));
+      } else {
+        setIdx(nextIdx); // Only advance if valid
+      }
+  }
+
+
+  function buildMarkdownResponse(sample, a){
+     a = a || {};
+    let lines = [];
+    lines.push(`**Timeline Alignment:** ${a.align||''}`);
+    lines.push('');
+    (sample.items||[]).forEach((it, i)=>{
+      lines.push(`## Step ${i+1}: Assess statement`);
+      lines.push(`* **Hypothesis**: ${it.hypothesis||''}`);
+      lines.push(`* **Evidence**: ${it.evidence||''}`);
+      lines.push(`* **Verdict**: **${(a.items && i < a.items.length && a.items[i])||''}**`);
+      lines.push('');
+    });
+    lines.push(`The final answer is: $\\boxed{${a.bottom_line||''}}$`);
+    return lines.join('\n');
+  }
+
+  function buildParsed(sample, a){
+     a = a || {};
+    return {
+      items: (sample.items||[]).map((it, i)=>({
+        hypothesis: it.hypothesis||'',
+        evidence: it.evidence||'',
+        verdict: (a.items && i < a.items.length && a.items[i])||''
+      })),
+      bottom_line: a.bottom_line||''
+    };
+  }
+
+  window.addEventListener('DOMContentLoaded', (event) => {
+    $("reportCard").innerHTML = "Please load assignment JSON and reports JSONL files to begin.";
+     loadProgress(); // Try to resume timer/load answers on page load
+     // Don't render automatically, wait for user load action
+     // if (data && data.length > 0) render();
+  });
+
+</script>
+</body>
+</html>
