@@ -30,13 +30,11 @@
   .itemBox { border-top:1px solid #eee; padding-top:10px; margin-top:10px; }
   .hl { background: #ffeb3b; }
   #progress { margin-left: 8px; color:#555; }
-  
-  /* ===== START NEW/MODIFIED STYLES ===== */
-  
+
   .itemBox > div:first-of-type {
     font-weight: 600;
   }
-  
+
   .evidence-quote {
     color: #333;
     font-size: 0.95rem;
@@ -50,25 +48,22 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-  
-  /* ===== START STYLE CHANGE ===== */
-  /* CSS for the evidence number (More visible) */
-  .hl-number { 
-    display: inline-block; /* Allows padding */
-    background: var(--primary); /* Use primary color */
-    color: #fff; /* White text */
-    font-weight: 700; 
-    font-size: 0.85em; /* A bit larger */
-    padding: 1px 5px; /* Padding for tag look */
-    border-radius: 4px; /* Rounded corners */
-    vertical-align: super; /* Aligns nicely above baseline */
-    margin-left: 4px; /* Space from the highlight */
-    line-height: 1; /* Ensure tight line height */
+
+  .hl-number {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    vertical-align: super;
+    margin-left: 4px;
+    line-height: 1;
   }
-  /* ===== END STYLE CHANGE ===== */
-  
+
   .split { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-  .split .left, .split .right { 
+  .split .left, .split .right {
     min-height: 70vh;
   }
   .right {
@@ -80,8 +75,7 @@
     height: 100%;
     overflow-y: auto;
   }
-  /* ===== END NEW/MODIFIED STYLES ===== */
-  
+
   .hidden { display:none; }
   .link { color: var(--primary); text-decoration: none; font-weight: 600; }
   .link:hover { text-decoration: underline; }
@@ -126,6 +120,7 @@
   let reportsDb = {};
   let idx = 0;
   let answers = {};
+  let startTime = null;
   const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
 
   const $ = (id)=>document.getElementById(id);
@@ -134,6 +129,10 @@
   function loadProgress(){
     try { answers = JSON.parse(localStorage.getItem("annotation_answers")||"{}"); }
     catch { answers = {}; }
+     const savedStartTime = localStorage.getItem("annotation_startTime");
+     if (savedStartTime) {
+        startTime = new Date(parseInt(savedStartTime));
+     }
   }
 
   function setIdx(n){
@@ -150,53 +149,74 @@
       const k = keyOf(s);
       const a = answers[k];
       if(!a) continue;
-      const okItems = Array.isArray(a.items) && s.items && a.items.length===s.items.length && a.items.every(v=>v==='Support'||v==='Not-Support');
-      if(okItems && (a.bottom_line==='Relevant'||a.bottom_line==='Irrelevant') && (a.align==='Yes'||a.align==='No')){
+      const hasItems = s.items && s.items.length > 0;
+      const itemsAnswered = hasItems ? (Array.isArray(a.items) && a.items.some(v => v === 'Support' || v === 'Not-Support')) : true;
+      if((a.align === 'Yes' || a.align === 'No') && (a.bottom_line === 'Relevant' || a.bottom_line === 'Irrelevant') && itemsAnswered){
         done++;
       }
     }
     return Math.round(100*done/data.length);
   }
 
-  function highlight(reportText, evidenceItems){
-    if(!reportText) return "(No report text available)";
-    let html = reportText;
-    
+
+  // ===== START MODIFIED highlight FUNCTION =====
+  function highlight(escapedReportHtml, evidenceItems){
+    if(!escapedReportHtml) return "(No report text available)";
+    let html = escapedReportHtml;
+
     const evidenceMap = new Map();
     for (const ev of (evidenceItems || []).filter(ev => ev.text)) {
-      const text = ev.text;
-      if (!evidenceMap.has(text)) {
-        evidenceMap.set(text, []);
+      // **NEW:** Remove trailing dots before using as key
+      const cleanText = ev.text.replace(/\.+$/, '').trim(); // Remove one or more dots from the end
+      if (!cleanText) continue; // Skip if text becomes empty
+
+      if (!evidenceMap.has(cleanText)) {
+        evidenceMap.set(cleanText, []);
       }
-      if (!evidenceMap.get(text).includes(ev.number)) {
-          evidenceMap.get(text).push(ev.number);
+      if (!evidenceMap.get(cleanText).includes(ev.number)) {
+          evidenceMap.get(cleanText).push(ev.number);
       }
     }
-    
-    const sortedEvidences = Array.from(evidenceMap.entries()).map(([text, numbers]) => ({ 
-      text, 
+
+    const sortedEvidences = Array.from(evidenceMap.entries()).map(([text, numbers]) => ({
+      text, // The cleaned text (without trailing dots) is used for regex building
       numbers: numbers.sort((a,b) => a - b)
     }));
     sortedEvidences.sort((a, b) => b.text.length - a.text.length);
 
     for(const ev of sortedEvidences){
       try{
-        const escText = escapeHtml(ev.text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(escText, 'gi');
-        
+        const rawEvidenceTextForRegex = ev.text; // Use the cleaned text
+        if (!rawEvidenceTextForRegex || rawEvidenceTextForRegex.trim() === "") continue;
+
+        const parts = rawEvidenceTextForRegex.match(/\S+/g) || [];
+        if (parts.length === 0) continue;
+
+        const escapedParts = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const flexibleJoiner = '(?:\\s|\\*|_)+'; // Allow whitespace, asterisks, or underscores between words
+        const flexiblePattern = escapedParts.join(flexibleJoiner);
+
+        const re = new RegExp(`(${flexiblePattern})`, 'gi'); // Capture the matched group
+
         const numbersLabel = ev.numbers.map(n => `(${n})`).join('');
-        
-        // ===== START CODE CHANGE =====
-        // Removed the '&nbsp;' to let margin handle spacing
-        const replacement = `<span class="hl">$&</span><strong class="hl-number">${numbersLabel}</strong>`; 
-        // ===== END CODE CHANGE =====
-        
+        const replacement = `<span class="hl">$1</span><strong class="hl-number">${numbersLabel}</strong>`;
+
         html = html.replace(re, replacement);
-      }catch(e){ console.error("Highlight regex error:", e); }
+
+      } catch(e) {
+          console.error(`Highlight regex error for evidence: "${ev.text}"`, e);
+      }
     }
-    
+
+    // Apply basic markdown styling
+    html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+    html = html.replace(/_(.*?)_/g, '<i>$1</i>');
+
+    // Convert newlines AFTER everything else
     return html.replace(/\n/g, "<br>");
   }
+  // ===== END MODIFIED highlight FUNCTION =====
+
 
   function render(){
     if(!data.length) {
@@ -208,15 +228,29 @@
     }
 
     const sample = data[idx];
+    if (!sample) {
+        console.error("Invalid index:", idx);
+        return;
+    }
     const key = keyOf(sample);
-    const pack = answers[key] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+    const expectedItemCount = sample.items?.length || 0;
+    const currentPackRaw = answers[key];
+    const pack = currentPackRaw || { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+
+    if (currentPackRaw && (!currentPackRaw.items || currentPackRaw.items.length !== expectedItemCount)) {
+        const oldItems = currentPackRaw.items || [];
+        pack.items = Array(expectedItemCount).fill(null).map((_, i) => oldItems[i] || null);
+    }
+    if (!pack.items) {
+      pack.items = Array(expectedItemCount).fill(null);
+    }
     answers[key] = pack;
+
 
     $("progress").textContent = `Item ${idx+1} / ${data.length} — ${percentDone()}% done`;
     $("idLabel").textContent = `Query ${sample.timeline_query_id} | Report ${sample.report_id}`;
     $("openReliefBtn").href = `https://reliefweb.int/node/${sample.report_id}`;
 
-    // Query card
     $("queryBox").innerHTML = `
       <h3 style="margin:0 0 8px 0;">Timeline Query</h3>
       <ol style="margin:0; padding-left: 22px;">
@@ -224,11 +258,10 @@
       </ol>
     `;
 
-    // Annotation card
     const items = sample.items || [];
     let html = `<h3 style="margin:0 0 10px 0;">Per-Statement Judgments</h3>`;
     items.forEach((it,i)=>{
-      const v = pack.items[i];
+       const v = (pack.items && i < pack.items.length) ? pack.items[i] : null;
       html += `
         <div class="itemBox">
           <div><b>${i+1}. Hypothesis:</b> ${escapeHtml(it.hypothesis||'')}</div>
@@ -240,7 +273,6 @@
         </div>`;
     });
 
-    // Alignment buttons
     html += `
       <div class="itemBox" style="border-top:none;">
         <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
@@ -253,7 +285,6 @@
       </div>
     `;
 
-    // Bottom line buttons
     html += `
       <div class="itemBox" style="border-top:none;">
         <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
@@ -269,104 +300,133 @@
     $("annotBox").innerHTML = html;
 
     const reportId = sample.report_id;
-    const reportText = reportsDb[reportId] || `(Report ID ${reportId} not found. Please load the correct Reports JSONL file.)`;
-    
-    const evidenceItems = items.map((it, i) => ({ 
-      text: it.evidence || '', 
-      number: i + 1 
-    }));
-    
-    let processedText = escapeHtml(reportText);
-    
-    processedText = processedText.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-    processedText = processedText.replace(/_(.*?)_/g, '<i>$1</i>');
-    
-    let finalHtml = highlight(processedText, evidenceItems);
+    let finalReportHtml = "(Report text not available. Load Reports JSONL file.)";
+    if (reportsDb && Object.keys(reportsDb).length > 0) {
+        const reportText = reportsDb[reportId] || `(Report ID ${reportId} not found in loaded reports file.)`;
+
+        const evidenceItemsForHighlight = items.map((it, i) => ({
+          text: it.evidence || '',
+          number: i + 1
+        }));
+
+        let escapedReportHtml = escapeHtml(reportText);
+        finalReportHtml = highlight(escapedReportHtml, evidenceItemsForHighlight);
+    }
+
 
     $("reportCard").innerHTML = `
       <h3 style="margin:0 0 8px 0;">Report (ID: ${sample.report_id})</h3>
       <div style="color:#666; font-size:.9rem; margin-bottom:6px;">Evidence strings are highlighted.</div>
-      <div style="word-break: break-word;">${finalHtml}</div>
+      <div style="word-break: break-word;">${finalReportHtml}</div>
     `;
   }
 
-  function escapeHtml(str){
-    return (str||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
+
+ function escapeHtml(str){
+    return (str || '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+ }
+
 
   function setVerdict(i, val){
     const sample = data[idx];
+     if (!sample) return;
     const k = keyOf(sample);
-    answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
-    answers[k].items[i] = val;
-    saveProgress(); render();
+     const expectedItemCount = sample.items?.length || 0;
+     if (!answers[k]) {
+       answers[k] = { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+     } else if (!answers[k].items || answers[k].items.length !== expectedItemCount) {
+       const oldItems = answers[k].items || [];
+       answers[k].items = Array(expectedItemCount).fill(null).map((_, j) => oldItems[j] || null);
+     }
+
+     if (i >= 0 && i < answers[k].items.length) {
+       answers[k].items[i] = val;
+       saveProgress();
+       render();
+     } else {
+        console.error(`Invalid index ${i} for items array of length ${answers[k].items.length}`);
+     }
   }
-  
+
   function setAlign(val){
     const sample = data[idx];
+     if (!sample) return;
     const k = keyOf(sample);
-    answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+     const expectedItemCount = sample.items?.length || 0;
+     if (!answers[k]) {
+       answers[k] = { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+     } else if (!answers[k].items || answers[k].items.length !== expectedItemCount) {
+       const oldItems = answers[k].items || [];
+       answers[k].items = Array(expectedItemCount).fill(null).map((_, j) => oldItems[j] || null);
+     }
     answers[k].align = val;
-    
+
     if (val === 'No') {
       answers[k].bottom_line = 'Irrelevant';
     }
-    
-    saveProgress(); render();
+
+    saveProgress();
+    render();
   }
+
 
   function setBottom(val){
     const sample = data[idx];
+     if (!sample) return;
     const k = keyOf(sample);
-    answers[k] = answers[k] || { items:Array(sample.items?.length||0).fill(null), bottom_line:null, align:null };
+     const expectedItemCount = sample.items?.length || 0;
+      if (!answers[k]) {
+       answers[k] = { items: Array(expectedItemCount).fill(null), bottom_line: null, align: null };
+     } else if (!answers[k].items || answers[k].items.length !== expectedItemCount) {
+       const oldItems = answers[k].items || [];
+       answers[k].items = Array(expectedItemCount).fill(null).map((_, j) => oldItems[j] || null);
+     }
     const pack = answers[k];
     const items = sample.items || [];
     const hasHypotheses = items.length > 0;
 
-    // --- 'Relevant' Rule ---
+    // --- Validation Logic ---
     if (val === 'Relevant') {
-      const allSupport = hasHypotheses ? (pack.items.length === items.length && pack.items.every(h => h === 'Support')) : true;
+      const allSupport = hasHypotheses ? (pack.items && pack.items.length === items.length && pack.items.every(h => h === 'Support')) : true;
       const alignmentIsYes = pack.align === 'Yes';
-      
+
       let errors = [];
-      if (!allSupport) {
-        errors.push("• לא כל ההיפותזות סומנו כ-'Support'.");
-      }
-      if (!alignmentIsYes) {
-        errors.push("• 'Timeline alignment' אינו 'Yes'.");
-      }
-      
+      if (!allSupport) errors.push("• לא כל ההיפותזות סומנו כ-'Support'.");
+      if (!alignmentIsYes) errors.push("• 'Timeline alignment' אינו 'Yes'.");
+
       if (errors.length > 0) {
         alert("לא ניתן לסמן 'Relevant'.\nכדי לסמן 'Relevant', יש לעמוד בתנאים הבאים:\n\n" + errors.join("\n"));
         return;
       }
     }
 
-    // --- 'Irrelevant' Rules ---
     if (val === 'Irrelevant') {
-      const atLeastOneNotSupport = pack.items.some(h => h === 'Not-Support');
+      const atLeastOneNotSupport = pack.items && pack.items.some(h => h === 'Not-Support');
       const alignmentIsNo = pack.align === 'No';
-      
+
       if (!atLeastOneNotSupport && !alignmentIsNo) {
         alert("לא ניתן לסמן 'Irrelevant'.\nיש לסמן 'Irrelevant' רק אם לפחות היפותזה אחת היא 'Not-Support' או אם 'Timeline alignment' הוא 'No'.");
         return;
       }
 
-      const numSupport = pack.items.filter(h => h === 'Support').length;
-      const numNull = pack.items.filter(h => h === null).length;
-      const totalItems = pack.items.length;
+      const numSupport = pack.items ? pack.items.filter(h => h === 'Support').length : 0;
+      const numNull = pack.items ? pack.items.filter(h => h === null).length : items.length;
+      const totalItems = items.length;
       const oneSupportAndRestNull = hasHypotheses && (numSupport === 1) && ((numSupport + numNull) === totalItems);
+
 
       if (oneSupportAndRestNull) {
         alert("לא ניתן לסמן 'Irrelevant'.\nנראה שרק היפותזה אחת סומנה כ-'Support' ושאר ההיפותזות לא סומנו.\nאנא סיים לסמן את כל ההיפותזות.");
         return;
       }
     }
+     // --- End Validation ---
 
     answers[k].bottom_line = val;
-    saveProgress(); 
+    saveProgress();
     render();
   }
+
 
   // ===== UI events =====
   $("loadBtn").addEventListener("click", async ()=>{
@@ -375,60 +435,103 @@
       const file = await fileHandle.getFile();
       const text = await file.text();
       data = JSON.parse(text);
-      loadProgress();
-      idx = 0; 
-      render();
-    } catch(err) { console.error("Error loading assignment file:", err); }
+       answers = {};
+       localStorage.removeItem("annotation_answers");
+       startTime = new Date();
+       localStorage.setItem("annotation_startTime", startTime.getTime());
+      idx = 0;
+      if (data && data.length > 0) {
+         loadProgress();
+         render();
+      } else {
+         $("reportCard").innerHTML = "Loaded assignment file is empty or invalid.";
+         $("queryBox").innerHTML = "";
+         $("annotBox").innerHTML = "";
+         $("progress").textContent = "";
+         $("idLabel").textContent = "";
+         startTime = null;
+         localStorage.removeItem("annotation_startTime");
+      }
+    } catch(err) {
+      if (err.name !== 'AbortError') {
+         console.error("Error loading assignment file:", err);
+         alert("Error loading assignment file. Please check the file format and console for details.");
+         data = [];
+         answers = {};
+         idx = 0;
+         startTime = null;
+         localStorage.removeItem("annotation_startTime");
+         render();
+      } else {
+        if (!startTime) {
+            localStorage.removeItem("annotation_startTime");
+        }
+      }
+    }
   });
+
 
   $("loadReportsBtn").addEventListener("click", async () => {
     try {
       const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSONL', accept:{'application/x-ndjson':['.jsonl'], 'application/json':['.jsonl']}}]});
       const file = await fileHandle.getFile();
       const text = await file.text();
-      
+
       reportsDb = {};
       const lines = text.split('\n');
+      let lineNum = 0;
+      let validReportsCount = 0;
       for (const line of lines) {
+        lineNum++;
         if (line.trim() === "") continue;
         try {
           const report = JSON.parse(line);
-          if (report.id && report.description) {
+          if (report.id && typeof report.description === 'string') {
             reportsDb[report.id] = report.description;
+            validReportsCount++;
+          } else {
+             console.warn(`Report on line ${lineNum} missing 'id' or 'description' is not a string.`);
           }
-        } catch(e) { console.warn("Failed to parse line:", line, e); }
+        } catch(e) { console.warn(`Failed to parse line ${lineNum}:`, line, e); }
       }
-      
-      const count = Object.keys(reportsDb).length;
-      alert(`Reports DB loaded successfully with ${count} reports.`);
-      $("loadReportsBtn").textContent = `📚 Reports DB (${count} loaded)`;
-      
+
+      if (validReportsCount > 0) {
+        alert(`Reports DB loaded successfully with ${validReportsCount} reports.`);
+        $("loadReportsBtn").textContent = `📚 Reports DB (${validReportsCount} loaded)`;
+      } else {
+         alert(`Reports DB loaded, but no valid reports found. Please check file format.`);
+         $("loadReportsBtn").textContent = `📚 Load Reports JSONL (Error)`;
+      }
+
       if (data.length > 0) {
         render();
       }
     } catch (err) {
-      console.error("Error loading reports file:", err);
-      alert("Could not load reports file. See console for details.");
+      if (err.name !== 'AbortError') {
+        console.error("Error loading reports file:", err);
+        alert("Could not load reports file. See console for details.");
+      }
     }
   });
 
   document.addEventListener("click", (e)=>{
     const t = e.target;
-    
+
     if(t.id==="nextBtn"){
       const sample = data[idx];
       if (!sample) return;
-      
+
       const k = keyOf(sample);
-      const a = answers[k] || { items: [], bottom_line: null };
-      
+      const a = answers[k] || { items: Array(sample.items?.length||0).fill(null), bottom_line: null };
+
       const hasHypothesisItems = (sample.items && sample.items.length > 0);
+      const currentItems = a.items || [];
       const atLeastOneAnswered = hasHypothesisItems
-                            ? a.items.some(v => v === 'Support' || v === 'Not-Support') 
+                            ? currentItems.some(v => v === 'Support' || v === 'Not-Support')
                             : true;
-      
+
       const hasBottomLine = a.bottom_line === 'Relevant' || a.bottom_line === 'Irrelevant';
-      
+
       let errors = [];
       if (hasHypothesisItems && !atLeastOneAnswered) {
         errors.push("• יש לענות לפחות על היפותזה אחת (Support / Not-Support).");
@@ -436,7 +539,7 @@
       if (!hasBottomLine) {
         errors.push("• יש לבחור 'Bottom line' (Relevant / Irrelevant).");
       }
-      
+
       if (errors.length > 0) {
         alert("אנא השלם את השדות הבאים לפני המעבר:\n\n" + errors.join("\n"));
       } else {
@@ -445,37 +548,84 @@
     }
 
     if(t.id==="prevBtn") setIdx(idx-1);
-    
+
     if(t.id==="jumpBtn"){
+       if (!data || data.length === 0) {
+        alert("Please load an assignment file first.");
+        return;
+      }
       const n = prompt(`Jump to index (1..${data.length})`);
       if(!n) return;
-      const j = Number(n)-1; if(!Number.isFinite(j)) return;
+      const j = Number(n)-1;
+      if(!Number.isFinite(j) || j < 0 || j >= data.length) {
+         alert(`Invalid index. Please enter a number between 1 and ${data.length}.`);
+         return;
+      }
       setIdx(j);
     }
-    
+
     if(t.id==="exportBtn"){
+       if (!data || data.length === 0) {
+        alert("Please load an assignment file first.");
+        return;
+      }
+       let durationMinutes = null;
+       if (startTime) {
+           const endTime = new Date();
+           durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
+       } else {
+           alert("Start time was not recorded. Duration cannot be calculated.");
+       }
+
+      if (Object.keys(answers).length === 0) {
+         alert("No annotations have been made yet to export.");
+         return;
+      }
+
       const out = [];
+      let missingCount = 0;
       for(const sample of data){
         const k = keyOf(sample);
-        const a = answers[k] || {};
-        const rec = {
-          timeline_query_id: sample.timeline_query_id,
-          report_id: sample.report_id,
-          response: buildMarkdownResponse(sample, a),
-          parsed_response: buildParsed(sample, a),
-          timeline_alignment: a.align || ""
-        };
-        out.push(JSON.stringify(rec));
+        const a = answers[k];
+        const isAnnotated = a && (a.align || a.bottom_line || (a.items && a.items.some(it => it !== null)));
+
+        if (isAnnotated) {
+            const timeline_alignment = a.align || "";
+            const rec = {
+              timeline_query_id: sample.timeline_query_id,
+              report_id: sample.report_id,
+              response: buildMarkdownResponse(sample, a),
+              parsed_response: buildParsed(sample, a),
+              timeline_alignment: timeline_alignment,
+              duration_minutes: durationMinutes
+            };
+            out.push(JSON.stringify(rec));
+        } else {
+            missingCount++;
+        }
       }
+
+      if (out.length === 0) {
+         alert("No completed annotations found to export.");
+         return;
+      }
+
+      if (missingCount > 0) {
+         alert(`Exporting ${out.length} annotated items. ${missingCount} items were skipped as they had no annotations.`);
+      }
+
       const blob = new Blob([out.join("\n")], {type:'application/x-ndjson'});
       const url = URL.createObjectURL(blob);
       const aEl = document.createElement('a');
-      aEl.href = url; aEl.download = 'annotations.jsonl'; aEl.click();
+      aEl.href = url;
+      aEl.download = 'annotations.jsonl';
+      aEl.click();
       URL.revokeObjectURL(url);
     }
   });
 
   function buildMarkdownResponse(sample, a){
+     a = a || {};
     let lines = [];
     lines.push(`**Timeline Alignment:** ${a.align||''}`);
     lines.push('');
@@ -483,7 +633,7 @@
       lines.push(`## Step ${i+1}: Assess statement`);
       lines.push(`* **Hypothesis**: ${it.hypothesis||''}`);
       lines.push(`* **Evidence**: ${it.evidence||''}`);
-      lines.push(`* **Verdict**: **${(a.items&&a.items[i])||''}**`);
+      lines.push(`* **Verdict**: **${(a.items && i < a.items.length && a.items[i])||''}**`);
       lines.push('');
     });
     lines.push(`The final answer is: $\\boxed{${a.bottom_line||''}}$`);
@@ -491,15 +641,21 @@
   }
 
   function buildParsed(sample, a){
+     a = a || {};
     return {
       items: (sample.items||[]).map((it, i)=>({
         hypothesis: it.hypothesis||'',
         evidence: it.evidence||'',
-        verdict: (a.items&&a.items[i])||''
+        verdict: (a.items && i < a.items.length && a.items[i])||''
       })),
       bottom_line: a.bottom_line||''
     };
   }
+
+  window.addEventListener('DOMContentLoaded', (event) => {
+    $("reportCard").innerHTML = "Please load assignment JSON and reports JSONL files to begin.";
+  });
+
 </script>
 </body>
 </html>
