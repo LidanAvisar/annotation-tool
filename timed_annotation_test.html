@@ -13,7 +13,7 @@
     --ink:#222;
     --bg:#fafafa;
     --card:#fff;
-    
+    --highlight-bg: #b3e5fc; 
   }
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--ink); margin:0; }
@@ -30,7 +30,8 @@
   .pill { padding: 6px 10px; border-radius: 999px; background:#f1f1f1; }
   .card { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
   .itemBox { border-top:1px solid #eee; padding-top:10px; margin-top:10px; }
-  .hl { background: #ffeb3b; }
+  
+  .hl { background: var(--highlight-bg); }
   
   
   .itemBox > div:first-of-type {
@@ -81,6 +82,23 @@
   .hidden { display:none; }
   .link { color: var(--primary); text-decoration: none; font-weight: 600; }
   .link:hover { text-decoration: underline; }
+
+  
+  #pauseOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #ffffff; 
+    z-index: 9998;
+    justify-content: center;
+    align-items: center;
+  }
+  #pauseOverlay button {
+    font-size: 1.5rem;
+    padding: 16px 24px;
+  }
 </style>
 </head>
 <body>
@@ -94,9 +112,11 @@
     <button id="prevBtn" class="ghost" disabled>⬅ Prev</button>
     <button id="nextBtn" class="ghost" disabled>Next ➡</button>
     <button id="jumpBtn" class="ghost" disabled>Jump to…</button>
+    <button id="pauseBtn" class="ghost" disabled>⏸️ Pause</button>
     <button id="exportBtn" class="primary" disabled>💾 Export Annotations & Finish</button> 
     <span class="pill" id="idLabel"></span>
-    </div>
+    <span class="pill" id="timer" style="font-family: 'Consolas', monospace; font-weight: 600; min-width: 80px; text-align: center;">00:00:00</span>
+  </div>
 
   <div class="bar">
     <a id="openReliefBtn" class="link" href="#" target="_blank" rel="noopener">Open on ReliefWeb ↗</a>
@@ -117,6 +137,11 @@
   </div>
 </main>
 
+<div id="pauseOverlay" class="hidden">
+  <button id="resumeBtn" class="primary">חזרה למטלה  resume</button>
+</div>
+
+
 <script>
   let data = [];
   let reportsDb = {};
@@ -126,6 +151,9 @@
   let currentItemStartTime = null; 
   let currentItemIdx = -1; 
   
+  let totalSeconds = 0;
+  let timerInterval = null;
+  
 
   const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
 
@@ -133,6 +161,45 @@
 
   
   
+  function updateTimerDisplay() {
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const s = String(totalSeconds % 60).padStart(2, '0');
+    $("timer").textContent = `${h}:${m}:${s}`;
+  }
+
+  function startActiveTimer() {
+    if (timerInterval) return; 
+    timerInterval = setInterval(() => {
+      totalSeconds++;
+      updateTimerDisplay();
+    }, 1000);
+  }
+  
+  function stopActiveTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  function pauseTask() {
+    if (timerInterval === null) return; 
+    stopActiveTimer();
+    recordItemDuration(); 
+    $("pauseOverlay").classList.remove("hidden");
+    $("pauseOverlay").style.display = 'flex'; 
+  }
+
+  // --- 💡 כאן נמצא התיקון 💡 ---
+  function resumeTask() {
+    if (timerInterval !== null) return; // אם הטיימר כבר רץ, אל תעשה כלום
+    startActiveTimer();
+    currentItemStartTime = Date.now(); 
+    $("pauseOverlay").classList.add("hidden");
+    $("pauseOverlay").style.display = ''; // מאפס את ה-inline style כדי שהקלאס 'hidden' יעבוד
+  }
+  
+
+
   function recordItemDuration() {
     
     if (currentItemStartTime === null || currentItemIdx === -1 || !data[currentItemIdx]) return;
@@ -159,7 +226,7 @@
  function forceExportAndEndTask() {
       if (!data || data.length === 0) return;
 
-      
+      stopActiveTimer(); 
       recordItemDuration(); 
 
       
@@ -171,6 +238,8 @@
           totalDurationMinutes = 0; 
       }
       
+      const totalActiveDurationMinutes = Math.round(totalSeconds / 60);
+
       const out = [];
       let annotatedCount = 0;
       
@@ -193,7 +262,8 @@
               parsed_response: buildParsed(sample, a),
               timeline_alignment: timeline_alignment,
               item_duration_ms: a.durationMs || 0, 
-              total_assignment_duration_minutes: totalDurationMinutes 
+              total_assignment_duration_minutes: totalDurationMinutes,
+              total_assignment_active_minutes: totalActiveDurationMinutes 
             };
             out.push(JSON.stringify(rec));
         }
@@ -207,7 +277,7 @@
           aEl.download = 'annotations_export.jsonl';
           aEl.click();
           URL.revokeObjectURL(url);
-          console.log(`Exported ${annotatedCount} items. Total Duration: ${totalDurationMinutes} mins.`);
+          console.log(`Exported ${annotatedCount} items. Total Duration: ${totalDurationMinutes} mins. Active Duration: ${totalActiveDurationMinutes} mins.`);
           alert("ייצוא הושלם! אנא שלח את הקובץ 'annotations_export.jsonl' בחזרה אלינו.");
       } else {
           console.log("Export triggered, but no annotations found to save.");
@@ -220,6 +290,7 @@
       localStorage.removeItem("annotation_endTime"); 
       localStorage.removeItem("annotation_answers");
       localStorage.removeItem("annotation_idx");
+      localStorage.removeItem("annotation_totalSeconds"); 
   }
 
 
@@ -230,6 +301,7 @@
       $("nextBtn").disabled = true;
       $("jumpBtn").disabled = true;
       $("exportBtn").disabled = true;
+      $("pauseBtn").disabled = true; 
       document.querySelectorAll('#annotBox button').forEach(btn => btn.disabled = true);
   }
 
@@ -243,17 +315,21 @@
       $("nextBtn").disabled = false;
       $("jumpBtn").disabled = false;
       $("exportBtn").disabled = false;
-      
+      $("pauseBtn").disabled = false; 
   }
 
   function saveProgress(){ 
     localStorage.setItem("annotation_answers", JSON.stringify(answers)); 
-    
+    localStorage.setItem("annotation_totalSeconds", totalSeconds.toString()); 
   }
 
   function loadProgress(){
     try { answers = JSON.parse(localStorage.getItem("annotation_answers")||"{}"); }
     catch { answers = {}; }
+
+    
+    totalSeconds = parseInt(localStorage.getItem("annotation_totalSeconds") || "0");
+    updateTimerDisplay();
 
     const savedStartTime = localStorage.getItem("annotation_startTime");
 
@@ -279,11 +355,18 @@
     if(n<0 || n>=data.length) return;
     if (n === idx) return; 
 
-    recordItemDuration(); 
+    
+    if (timerInterval !== null) {
+      recordItemDuration(); 
+    }
     
     idx = n;
     currentItemIdx = n;
-    currentItemStartTime = Date.now(); 
+    
+    
+    if (timerInterval !== null) {
+      currentItemStartTime = Date.now(); 
+    }
     localStorage.setItem("annotation_idx", idx.toString());
     
     render();
@@ -551,7 +634,10 @@
       
       if (nextIdx >= data.length) {
         
-        recordItemDuration(); 
+        
+        if (timerInterval !== null) {
+          recordItemDuration(); 
+        }
         currentItemStartTime = null; 
         currentItemIdx = -1;
 
@@ -687,8 +773,10 @@
 
       if (startTime === null) { 
          answers = {};
+         totalSeconds = 0; 
          localStorage.removeItem("annotation_answers");
          localStorage.removeItem("annotation_idx");
+         localStorage.removeItem("annotation_totalSeconds");
          startTime = new Date();
          localStorage.setItem("annotation_startTime", startTime.getTime());
          idx = 0;
@@ -708,6 +796,7 @@
       localStorage.setItem("annotation_idx", idx.toString());
       
       enableUI();
+      startActiveTimer(); 
        
       if (data && data.length > 0) {
          render();
@@ -721,9 +810,12 @@
          startTime = null; 
          currentItemStartTime = null;
          currentItemIdx = -1;
+         totalSeconds = 0; 
+         stopActiveTimer(); 
          localStorage.removeItem("annotation_startTime");
          localStorage.removeItem("annotation_answers");
          localStorage.removeItem("annotation_idx");
+         localStorage.removeItem("annotation_totalSeconds");
          
          
          $("loadBtn").disabled = false;
@@ -802,6 +894,11 @@
     if(t.id==="prevBtn") {
         setIdx(idx - 1);
     }
+    
+    
+    if(t.id==="pauseBtn"){
+      pauseTask();
+    }
 
     if(t.id==="jumpBtn"){
        if (!data || data.length === 0) {
@@ -836,6 +933,8 @@
     }
   });
 
+  
+  $("resumeBtn").addEventListener("click", resumeTask);
   
 
 
