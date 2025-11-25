@@ -121,7 +121,10 @@
   let idx = 0;
   let answers = {};
   let startTime = null;
-  const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
+
+  // FIX: Support both 'query_id' and 'timeline_query_id'
+  const getQueryId = (x) => x.query_id || x.timeline_query_id;
+  const keyOf = (x) => `${getQueryId(x)}|${x.report_id}`;
 
   const $ = (id)=>document.getElementById(id);
 
@@ -246,16 +249,20 @@
     }
     answers[key] = pack;
 
+    const qId = getQueryId(sample);
 
     $("progress").textContent = `Item ${idx+1} / ${data.length} — ${percentDone()}% done`;
-    $("idLabel").textContent = `Query ${sample.timeline_query_id} | Report ${sample.report_id}`;
+    $("idLabel").textContent = `Query ${qId} | Report ${sample.report_id}`;
     $("openReliefBtn").href = `https://reliefweb.int/node/${sample.report_id}`;
+
+    // Display query text if available, otherwise show placeholder
+    const queryListHtml = (sample.timeline_query && sample.timeline_query.length > 0) 
+        ? `<ol style="margin:0; padding-left: 22px;">${sample.timeline_query.map(s=>`<li>${escapeHtml(s)}</li>`).join("")}</ol>`
+        : `<div style="color:#777; font-style:italic;">(Timeline query text not found in assignment file)</div>`;
 
     $("queryBox").innerHTML = `
       <h3 style="margin:0 0 8px 0;">Timeline Query</h3>
-      <ol style="margin:0; padding-left: 22px;">
-        ${(sample.timeline_query||[]).map(s=>`<li>${escapeHtml(s)}</li>`).join("")}
-      </ol>
+      ${queryListHtml}
     `;
 
     const items = sample.items || [];
@@ -625,8 +632,9 @@
 
         if (isAnnotated) {
             const timeline_alignment = a.align || "";
+            const qId = getQueryId(sample);
             const rec = {
-              timeline_query_id: sample.timeline_query_id,
+              timeline_query_id: qId,
               report_id: sample.report_id,
               response: buildMarkdownResponse(sample, a),
               parsed_response: buildParsed(sample, a),
