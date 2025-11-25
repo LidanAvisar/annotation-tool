@@ -87,7 +87,7 @@
 
 <main id="root">
   <div class="bar">
-    <button id="loadBtn" class="primary">📂 1. Load Assignment JSON</button>
+    <button id="loadBtn" class="primary">📂 1. Load Assignment (JSON/JSONL)</button>
     <button id="loadReportsBtn" class="primary">📚 2. Load Reports JSONL</button>
     <button id="prevBtn" class="ghost">⬅ Prev</button>
     <button id="nextBtn" class="ghost">Next ➡</button>
@@ -166,9 +166,9 @@
 
     const evidenceMap = new Map();
     for (const ev of (evidenceItems || []).filter(ev => ev.text)) {
-      // **NEW:** Remove trailing dots before using as key
-      const cleanText = ev.text.replace(/\.+$/, '').trim(); // Remove one or more dots from the end
-      if (!cleanText) continue; // Skip if text becomes empty
+      // Remove trailing dots before using as key
+      const cleanText = ev.text.replace(/\.+$/, '').trim(); 
+      if (!cleanText) continue;
 
       if (!evidenceMap.has(cleanText)) {
         evidenceMap.set(cleanText, []);
@@ -179,24 +179,24 @@
     }
 
     const sortedEvidences = Array.from(evidenceMap.entries()).map(([text, numbers]) => ({
-      text, // The cleaned text (without trailing dots) is used for regex building
+      text,
       numbers: numbers.sort((a,b) => a - b)
     }));
     sortedEvidences.sort((a, b) => b.text.length - a.text.length);
 
     for(const ev of sortedEvidences){
       try{
-        const rawEvidenceTextForRegex = ev.text; // Use the cleaned text
+        const rawEvidenceTextForRegex = ev.text;
         if (!rawEvidenceTextForRegex || rawEvidenceTextForRegex.trim() === "") continue;
 
         const parts = rawEvidenceTextForRegex.match(/\S+/g) || [];
         if (parts.length === 0) continue;
 
         const escapedParts = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-        const flexibleJoiner = '(?:\\s|\\*|_)+'; // Allow whitespace, asterisks, or underscores between words
+        const flexibleJoiner = '(?:\\s|\\*|_)+'; 
         const flexiblePattern = escapedParts.join(flexibleJoiner);
 
-        const re = new RegExp(`(${flexiblePattern})`, 'gi'); // Capture the matched group
+        const re = new RegExp(`(${flexiblePattern})`, 'gi'); 
 
         const numbersLabel = ev.numbers.map(n => `(${n})`).join('');
         const replacement = `<span class="hl">$1</span><strong class="hl-number">${numbersLabel}</strong>`;
@@ -428,21 +428,59 @@
   }
 
 
-  // ===== UI events =====
+  // ===== UPDATED LOAD BUTTON EVENT =====
   $("loadBtn").addEventListener("click", async ()=>{
     try {
-      const [fileHandle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+      // 1. Updated file picker types to include JSONL
+      const [fileHandle] = await window.showOpenFilePicker({
+        types: [{
+          description: 'Assignment Files',
+          accept: {
+            'application/json': ['.json'],
+            'application/x-ndjson': ['.jsonl'],
+            'text/plain': ['.jsonl']
+          }
+        }]
+      });
+
       const file = await fileHandle.getFile();
       const text = await file.text();
-      data = JSON.parse(text);
-       answers = {};
-       localStorage.removeItem("annotation_answers");
-       startTime = new Date();
-       localStorage.setItem("annotation_startTime", startTime.getTime());
+
+      // 2. Smart Parsing Logic (Supports JSON Array OR JSONL)
+      try {
+        // Try to parse as standard JSON first
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          data = parsed;
+        } else {
+          // If valid JSON but not an array, treat as single item array
+          data = [parsed];
+        }
+      } catch (e) {
+        // If standard JSON parsing fails, assume it's JSONL (line-delimited)
+        console.log("JSON parse failed, attempting JSONL parsing...");
+        const lines = text.trim().split('\n');
+        data = lines
+          .map(line => line.trim())
+          .filter(line => line.length > 0) // Skip empty lines
+          .map((line, i) => {
+            try { return JSON.parse(line); }
+            catch (err) { console.warn(`Skipping invalid JSON on line ${i+1}`); return null; }
+          })
+          .filter(x => x !== null);
+      }
+
+      // Reset state logic
+      answers = {};
+      localStorage.removeItem("annotation_answers");
+      startTime = new Date();
+      localStorage.setItem("annotation_startTime", startTime.getTime());
       idx = 0;
+
       if (data && data.length > 0) {
          loadProgress();
          render();
+         $("loadBtn").textContent = `📂 1. Loaded (${data.length} items)`;
       } else {
          $("reportCard").innerHTML = "Loaded assignment file is empty or invalid.";
          $("queryBox").innerHTML = "";
@@ -455,17 +493,13 @@
     } catch(err) {
       if (err.name !== 'AbortError') {
          console.error("Error loading assignment file:", err);
-         alert("Error loading assignment file. Please check the file format and console for details.");
+         alert("Error loading assignment file. Please check the file format.");
          data = [];
          answers = {};
          idx = 0;
          startTime = null;
          localStorage.removeItem("annotation_startTime");
          render();
-      } else {
-        if (!startTime) {
-            localStorage.removeItem("annotation_startTime");
-        }
       }
     }
   });
