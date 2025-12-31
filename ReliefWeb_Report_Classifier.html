@@ -2,66 +2,66 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ReliefWeb QA - Instant Feedback</title>
+<title>ReliefWeb QA - Review Mode</title>
 <style>
-  :root {
-    --primary: #673ab7;
-    --bg: #f5f5f5;
-    --card: #fff;
-    --single: #4caf50;
-    --multiple: #ff9800;
-    --error: #f44336;
-  }
+  :root { --primary: #673ab7; --bg: #f5f5f5; --card: #fff; --single: #4caf50; --multiple: #ff9800; --error: #f44336; --chat: #2196f3; }
   body { font-family: system-ui, sans-serif; background: var(--bg); margin: 0; padding: 20px; direction: ltr; }
-  .container { max-width: 900px; margin: auto; }
+  .container { max-width: 1000px; margin: auto; }
   .card { background: var(--card); padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
-  
   header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ddd; margin-bottom: 20px; padding-bottom: 10px; }
+  
+  .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #eee; padding: 10px; border-radius: 8px; }
   
   .report-text { 
     white-space: pre-wrap; background: #fdfdfd; padding: 20px; border: 1px solid #e0e0e0; 
     height: 350px; overflow-y: auto; font-size: 1.05rem; line-height: 1.6; border-radius: 8px; margin-bottom: 20px;
   }
   
-  .actions { display: flex; gap: 20px; justify-content: center; margin-top: 10px; }
-  
-  button { padding: 14px 28px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; font-size: 1.1rem; transition: all 0.2s; }
+  .actions { display: flex; gap: 20px; justify-content: center; margin-bottom: 20px; }
+  button { padding: 12px 24px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; transition: all 0.2s; }
   button:disabled { opacity: 0.3; cursor: not-allowed; }
   
-  .btn-choice { background: #e0e0e0; color: #444; flex: 1; max-width: 200px; }
-  
-  /* Feedback Styles */
-  .correct-selection { background: var(--single) !important; color: white !important; border: 3px solid #2e7d32; }
-  .wrong-selection { background: var(--error) !important; color: white !important; border: 3px solid #b71c1c; }
-  .chat-truth { border: 3px solid #2196f3; position: relative; }
-  .chat-truth::after { content: "CHAT'S CHOICE"; position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: #2196f3; font-weight: bold; }
+  .btn-choice { background: #e0e0e0; color: #444; flex: 1; max-width: 200px; border: 3px solid transparent; }
+  .btn-nav { background: #fff; border: 1px solid #ccc; }
+  .btn-finish { background: var(--primary); color: white; width: 100%; font-size: 1.1rem; }
+  .btn-back-table { background: #333; color: white; margin-top: 10px; }
 
-  .feedback-area { text-align: center; margin-top: 20px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 1.2rem; }
-  .feedback-correct { background: #e8f5e9; color: #2e7d32; }
-  .feedback-wrong { background: #ffebee; color: #c62828; }
+  /* States */
+  .my-choice { border-color: black !important; transform: scale(1.05); }
+  .correct { background: var(--single) !important; color: white !important; }
+  .wrong { background: var(--error) !important; color: white !important; }
+  .chat-truth { border: 3px solid var(--chat) !important; position: relative; }
+  .chat-truth::after { content: "CHAT'S CHOICE"; position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 0.6rem; color: var(--chat); }
 
-  .btn-next { background: var(--primary); color: white; margin-top: 15px; padding: 10px 40px; }
-  
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; cursor: pointer; }
+  tr:hover { background: #f0f0f0; }
+  th { background: #eee; }
+  .row-match { color: var(--single); font-weight: bold; }
+  .row-mismatch { color: var(--error); font-weight: bold; }
+
   .hidden { display: none; }
-  .progress { font-weight: bold; color: var(--primary); }
 </style>
 </head>
 <body>
 
 <div class="container">
   <header>
-    <h2>QA Tool: Instant Feedback</h2>
-    <div id="statusInfo" class="hidden">Report <span id="progressDisplay" class="progress">0 / 0</span></div>
+    <h2>QA Tool: Review & Navigate</h2>
+    <div id="statusInfo" class="hidden">Item <b id="progressDisplay">0 / 0</b></div>
   </header>
   
   <div id="setupStep" class="card">
-    <h3>1. Load Test Set</h3>
-    <p>Upload your <b>test_set.jsonl</b> file:</p>
     <input type="file" id="fileInput" accept=".jsonl">
   </div>
 
   <div id="qaStep" class="card hidden">
-    <h3 id="reportIdDisplay">ID: -</h3>
+    <div class="nav-bar">
+        <button class="btn-nav" onclick="changeIndex(-1)">⬅ Previous</button>
+        <span id="reportIdDisplay" style="font-weight:bold"></span>
+        <button class="btn-nav" onclick="changeIndex(1)">Next ➡</button>
+    </div>
+
     <div id="reportText" class="report-text"></div>
     
     <div class="actions" id="actionButtons">
@@ -69,26 +69,36 @@
       <button id="btn-multiple" class="btn-choice" onclick="handleChoice('multiple')">Multiple (2)</button>
     </div>
 
-    <div id="feedbackContainer" class="hidden">
-        <div id="feedbackMsg" class="feedback-area"></div>
-        <div style="text-align: center;">
-            <button id="nextBtn" class="btn-next" onclick="nextReport()">Next Report ➡</button>
-        </div>
+    <div id="reviewControls" style="text-align:center">
+        <button id="finishBtn" class="btn-finish hidden" onclick="showResultsTable()">📊 View Results Summary</button>
+        <button id="backToTableBtn" class="btn-back-table hidden" onclick="showResultsTable()">↩ Back to Table</button>
     </div>
   </div>
 
   <div id="resultsStep" class="card hidden">
-    <h3>Final Summary</h3>
-    <p id="scoreSummary" style="font-size: 1.3rem;"></p>
-    <button class="btn-next" onclick="location.reload()">Restart</button>
+    <h3>Evaluation Results</h3>
+    <p id="scoreSummary"></p>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Report ID</th>
+          <th>Your Choice</th>
+          <th>Chat GPT</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="resultsTableBody"></tbody>
+    </table>
+    <button class="btn-nav" style="margin-top:20px" onclick="location.reload()">Upload New File</button>
   </div>
 </div>
 
 <script>
   let testData = [];
   let currentIndex = 0;
-  let score = 0;
-  let isWaitingForNext = false;
+  let userLabels = {}; 
+  let isReviewMode = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -97,7 +107,6 @@
     if (!file) return;
     const text = await file.text();
     testData = text.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
-    
     $('setupStep').classList.add('hidden');
     $('qaStep').classList.remove('hidden');
     $('statusInfo').classList.remove('hidden');
@@ -105,80 +114,114 @@
   });
 
   function renderItem() {
-    isWaitingForNext = false;
     const item = testData[currentIndex];
-    $('reportIdDisplay').textContent = `Report ID: ${item.id}`;
+    const userChoice = userLabels[currentIndex];
+    const chatChoice = item.chat_label;
+
+    $('reportIdDisplay').textContent = `ID: ${item.id}`;
     $('reportText').textContent = item.description;
     $('progressDisplay').textContent = `${currentIndex + 1} / ${testData.length}`;
     
-    // Reset buttons
-    $('btn-single').className = 'btn-choice';
-    $('btn-multiple').className = 'btn-choice';
-    $('btn-single').disabled = false;
-    $('btn-multiple').disabled = false;
+    // Reset Buttons
+    const sBtn = $('btn-single');
+    const mBtn = $('btn-multiple');
+    sBtn.className = 'btn-choice';
+    mBtn.className = 'btn-choice';
+    sBtn.disabled = false;
+    mBtn.disabled = false;
+
+    // Show saved choices if exist
+    if (userChoice) {
+        const isCorrect = userChoice === chatChoice;
+        const userBtn = $(`btn-${userChoice}`);
+        const chatBtn = $(`btn-${chatChoice}`);
+
+        if (isCorrect) {
+            userBtn.classList.add('correct', 'my-choice');
+        } else {
+            userBtn.classList.add('wrong', 'my-choice');
+            chatBtn.classList.add('chat-truth');
+        }
+    }
+
+    // Toggle Review Buttons
+    if (isReviewMode) {
+        $('backToTableBtn').classList.remove('hidden');
+        $('finishBtn').classList.add('hidden');
+    } else {
+        $('backToTableBtn').classList.add('hidden');
+        checkIfAllAnswered();
+    }
     
-    $('feedbackContainer').classList.add('hidden');
     $('reportText').scrollTop = 0;
   }
 
-  function handleChoice(userLabel) {
-    if (isWaitingForNext) return;
-    isWaitingForNext = true;
-
-    const chatLabel = testData[currentIndex].chat_label;
-    const isCorrect = userLabel === chatLabel;
-
-    if (isCorrect) score++;
-
-    // Visual Feedback on buttons
-    const userBtn = $(`btn-${userLabel}`);
-    const chatBtn = $(`btn-${chatLabel}`);
-
-    if (isCorrect) {
-        userBtn.classList.add('correct-selection');
-        $('feedbackMsg').textContent = "✅ Correct! Matches Chat's classification.";
-        $('feedbackMsg').className = "feedback-area feedback-correct";
-    } else {
-        userBtn.classList.add('wrong-selection');
-        chatBtn.classList.add('chat-truth');
-        $('feedbackMsg').textContent = `❌ Mismatch. Chat classified this as ${chatLabel.toUpperCase()}.`;
-        $('feedbackMsg').className = "feedback-area feedback-wrong";
+  function handleChoice(label) {
+    userLabels[currentIndex] = label;
+    renderItem();
+    if (!isReviewMode && currentIndex < testData.length - 1) {
+        setTimeout(() => changeIndex(1), 200);
     }
-
-    // Disable buttons
-    $('btn-single').disabled = true;
-    $('btn-multiple').disabled = true;
-
-    // Show feedback and Next button
-    $('feedbackContainer').classList.remove('hidden');
   }
 
-  function nextReport() {
-    currentIndex++;
-    if (currentIndex < testData.length) {
+  function changeIndex(delta) {
+    let newIdx = currentIndex + delta;
+    if (newIdx >= 0 && newIdx < testData.length) {
+        currentIndex = newIdx;
         renderItem();
-    } else {
-        showFinalResults();
     }
   }
 
-  function showFinalResults() {
+  function checkIfAllAnswered() {
+    if (Object.keys(userLabels).length === testData.length) {
+        $('finishBtn').classList.remove('hidden');
+    }
+  }
+
+  function showResultsTable() {
+    isReviewMode = true;
     $('qaStep').classList.add('hidden');
     $('resultsStep').classList.remove('hidden');
-    const percent = Math.round((score / testData.length) * 100);
-    $('scoreSummary').innerHTML = `You agreed with the Chat in <b>${percent}%</b> of cases.<br>(${score} out of ${testData.length})`;
+    
+    let matches = 0;
+    const tbody = $('resultsTableBody');
+    tbody.innerHTML = "";
+    
+    testData.forEach((item, i) => {
+      const u = userLabels[i] || "None";
+      const c = item.chat_label;
+      const match = u === c;
+      if (match) matches++;
+
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${i+1}</td>
+        <td>${item.id}</td>
+        <td>${u.toUpperCase()}</td>
+        <td>${c.toUpperCase()}</td>
+        <td class="${match ? 'row-match' : 'row-mismatch'}">${match ? '✅ OK' : '❌ MISMATCH'}</td>
+      `;
+      row.onclick = () => goToReviewItem(i);
+      tbody.appendChild(row);
+    });
+
+    const score = Math.round((matches / testData.length) * 100);
+    $('scoreSummary').innerHTML = `<b>Final Score: ${score}%</b> (${matches}/${testData.length})`;
   }
 
-  // Keyboard support
+  function goToReviewItem(index) {
+    currentIndex = index;
+    $('resultsStep').classList.add('hidden');
+    $('qaStep').classList.remove('hidden');
+    renderItem();
+  }
+
   document.addEventListener('keydown', (e) => {
     if ($('qaStep').classList.contains('hidden')) return;
-    
-    if (!isWaitingForNext) {
-        if (e.key === '1') handleChoice('single');
-        if (e.key === '2') handleChoice('multiple');
-    } else {
-        if (e.key === 'Enter' || e.key === ' ') nextReport();
-    }
+    if (e.key === '1') handleChoice('single');
+    if (e.key === '2') handleChoice('multiple');
+    if (e.key === 'ArrowLeft') changeIndex(-1);
+    if (e.key === 'ArrowRight') changeIndex(1);
   });
 </script>
 </body>
