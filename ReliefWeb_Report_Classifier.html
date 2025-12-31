@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ReliefWeb Report Classifier</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --primary: #2196f3;
+    --single: #4caf50;
+    --multiple: #ff9800;
+    --bg: #f5f5f5;
+    --card: #fff;
+    --text: #333;
+  }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+  header { margin-bottom: 20px; border-bottom: 2px solid #ddd; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .container { max-width: 900px; margin: auto; }
+  .card { background: var(--card); padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  .controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+  .report-content { white-space: pre-wrap; line-height: 1.6; max-height: 500px; overflow-y: auto; border: 1px solid #eee; padding: 15px; border-radius: 4px; }
+  .actions { display: flex; gap: 15px; margin-top: 20px; justify-content: center; }
+  
+  button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1rem; transition: opacity 0.2s; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-single { background: var(--single); color: white; }
+  .btn-multiple { background: var(--multiple); color: white; }
+  .btn-load { background: var(--primary); color: white; }
+  .btn-export { background: #333; color: white; }
+  
+  .status-pill { padding: 4px 12px; background: #ddd; border-radius: 20px; font-size: 0.9rem; }
+  .hotkey-hint { font-size: 0.8rem; color: #666; display: block; margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h2>📋 Report Classifier</h2>
+    <div id="counter" class="status-pill">No file loaded</div>
+  </header>
+
+  <div class="controls">
+    <button class="btn-load" id="loadBtn">📂 Load Reports (JSONL)</button>
+    <button class="btn-export" id="exportBtn" disabled>💾 Export Results</button>
+  </div>
+
+  <div id="mainUI" style="display: none;">
+    <div class="card">
+      <h3 id="reportTitle">Report ID: -</h3>
+      <div id="reportText" class="report-content"></div>
+    </div>
+
+    <div class="actions">
+      <div style="text-align: center;">
+        <button class="btn-single" id="singleBtn">Single</button>
+        <span class="hotkey-hint">Press [ 1 ]</span>
+      </div>
+      <div style="text-align: center;">
+        <button class="btn-multiple" id="multipleBtn">Multiple</button>
+        <span class="hotkey-hint">Press [ 2 ]</span>
+      </div>
+    </div>
+    
+    <div style="text-align: center; margin-top: 20px;">
+        <button id="prevBtn" style="background:none; color: #666; text-decoration: underline;">⬅ Back to previous</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let reports = [];
+  let currentIndex = 0;
+  let results = {}; // Stores report_id: "single" or "multiple"
+
+  const $ = (id) => document.getElementById(id);
+
+  // Load and parse JSONL
+  async function loadFile() {
+    try {
+      const [fileHandle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSONL Files', accept: { 'application/x-ndjson': ['.jsonl'] } }]
+      });
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      
+      reports = text.split('\n')
+        .filter(line => line.trim())
+        .map(line => JSON.parse(line));
+
+      if (reports.length > 0) {
+        currentIndex = 0;
+        results = {};
+        $('mainUI').style.display = 'block';
+        $('exportBtn').disabled = false;
+        renderReport();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  // Display current report
+  function renderReport() {
+    const report = reports[currentIndex];
+    $('reportTitle').textContent = `Report ID: ${report.id}`;
+    $('reportText').textContent = report.description || "No content";
+    $('counter').textContent = `Item ${currentIndex + 1} of ${reports.length}`;
+    window.scrollTo(0, 0);
+  }
+
+  // Save classification and move next
+  function classify(value) {
+    const reportId = reports[currentIndex].id;
+    results[reportId] = value;
+    
+    if (currentIndex < reports.length - 1) {
+      currentIndex++;
+      renderReport();
+    } else {
+      alert("All reports classified! You can now export.");
+    }
+  }
+
+  // Export results to JSONL
+  function exportResults() {
+    const output = Object.entries(results).map(([id, val]) => 
+      JSON.stringify({ report_id: id, classification: val })
+    ).join('\n');
+
+    const blob = new Blob([output], { type: 'application/x-ndjson' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'classified_reports.jsonl';
+    a.click();
+  }
+
+  // Event Listeners
+  $('loadBtn').addEventListener('click', loadFile);
+  $('exportBtn').addEventListener('click', exportResults);
+  $('singleBtn').addEventListener('click', () => classify('single'));
+  $('multipleBtn').addEventListener('click', () => classify('multiple'));
+  $('prevBtn').addEventListener('click', () => {
+    if (currentIndex > 0) {
+      currentIndex--;
+      renderReport();
+    }
+  });
+
+  // Keyboard Shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (reports.length === 0) return;
+    if (e.key === '1') classify('single');
+    if (e.key === '2') classify('multiple');
+  });
+</script>
+
+</body>
+</html>
