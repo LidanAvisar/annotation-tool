@@ -2,159 +2,241 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ReliefWeb Report Classifier</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReliefWeb QA Tool - Advanced</title>
 <style>
   :root {
-    --primary: #2196f3;
-    --single: #4caf50;
-    --multiple: #ff9800;
+    --primary: #673ab7;
     --bg: #f5f5f5;
     --card: #fff;
-    --text: #333;
+    --single: #4caf50;
+    --multiple: #ff9800;
+    --selected: #222;
   }
-  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
-  header { margin-bottom: 20px; border-bottom: 2px solid #ddd; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-  .container { max-width: 900px; margin: auto; }
-  .card { background: var(--card); padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-  .controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
-  .report-content { white-space: pre-wrap; line-height: 1.6; max-height: 500px; overflow-y: auto; border: 1px solid #eee; padding: 15px; border-radius: 4px; }
-  .actions { display: flex; gap: 15px; margin-top: 20px; justify-content: center; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+  .container { max-width: 950px; margin: auto; }
+  .card { background: var(--card); padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
   
-  button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1rem; transition: opacity 0.2s; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-single { background: var(--single); color: white; }
-  .btn-multiple { background: var(--multiple); color: white; }
-  .btn-load { background: var(--primary); color: white; }
-  .btn-export { background: #333; color: white; }
+  header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ddd; margin-bottom: 20px; padding-bottom: 10px; }
   
-  .status-pill { padding: 4px 12px; background: #ddd; border-radius: 20px; font-size: 0.9rem; }
-  .hotkey-hint { font-size: 0.8rem; color: #666; display: block; margin-top: 5px; }
+  .report-text { 
+    white-space: pre-wrap; 
+    background: #fdfdfd; 
+    padding: 20px; 
+    border: 1px solid #e0e0e0; 
+    height: 400px; 
+    overflow-y: auto; 
+    font-size: 1.05rem;
+    line-height: 1.6;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  
+  .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+
+  .actions { display: flex; gap: 20px; justify-content: center; margin-top: 10px; padding-top: 20px; border-top: 1px solid #eee; }
+  
+  button { padding: 12px 24px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; transition: all 0.2s; }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  
+  /* Styling for choice buttons */
+  .btn-choice { background: #e0e0e0; color: #444; border: 2px solid transparent; }
+  .btn-choice.active-s { background: var(--single); color: white; transform: scale(1.05); box-shadow: 0 4px 10px rgba(76, 175, 80, 0.3); }
+  .btn-choice.active-m { background: var(--multiple); color: white; transform: scale(1.05); box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); }
+  
+  .btn-nav { background: #fff; border: 1px solid #ccc; color: #555; }
+  .btn-nav:hover { background: #eee; }
+
+  .btn-finish { background: var(--primary); color: white; width: 100%; margin-top: 20px; font-size: 1.2rem; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 25px; border-radius: 8px; overflow: hidden; }
+  th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
+  th { background: var(--primary); color: white; }
+  
+  .match { background: #e8f5e9; color: #2e7d32; }
+  .mismatch { background: #ffebee; color: #c62828; }
+  
+  .hidden { display: none; }
+  .hotkey-hint { font-size: 0.75rem; display: block; margin-top: 4px; font-weight: normal; opacity: 0.7; }
 </style>
 </head>
 <body>
 
 <div class="container">
   <header>
-    <h2>📋 Report Classifier</h2>
-    <div id="counter" class="status-pill">No file loaded</div>
+    <h2>ReliefWeb QA Tool</h2>
+    <div id="statusInfo" class="hidden">Item <b id="progressDisplay">0 / 0</b></div>
   </header>
-
-  <div class="controls">
-    <button class="btn-load" id="loadBtn">📂 Load Reports (JSONL)</button>
-    <button class="btn-export" id="exportBtn" disabled>💾 Export Results</button>
+  
+  <div id="setupStep" class="card">
+    <h3>1. Load Test Set</h3>
+    <p>Upload the <b>test_set_single_multiple.jsonl</b> file to start the evaluation:</p>
+    <input type="file" id="fileInput" accept=".jsonl">
   </div>
 
-  <div id="mainUI" style="display: none;">
-    <div class="card">
-      <h3 id="reportTitle">Report ID: -</h3>
-      <div id="reportText" class="report-content"></div>
+  <div id="qaStep" class="card hidden">
+    <div class="nav-bar">
+        <button class="btn-nav" id="prevBtn" onclick="changeIndex(-1)">⬅ Previous (Arrow Left)</button>
+        <h3 id="reportIdDisplay" style="margin:0">ID: -</h3>
+        <button class="btn-nav" id="nextBtn" onclick="changeIndex(1)">Next (Arrow Right) ➡</button>
     </div>
 
-    <div class="actions">
-      <div style="text-align: center;">
-        <button class="btn-single" id="singleBtn">Single</button>
-        <span class="hotkey-hint">Press [ 1 ]</span>
-      </div>
-      <div style="text-align: center;">
-        <button class="btn-multiple" id="multipleBtn">Multiple</button>
-        <span class="hotkey-hint">Press [ 2 ]</span>
-      </div>
-    </div>
+    <div id="reportText" class="report-text"></div>
     
-    <div style="text-align: center; margin-top: 20px;">
-        <button id="prevBtn" style="background:none; color: #666; text-decoration: underline;">⬅ Back to previous</button>
+    <div class="actions">
+      <div style="text-align:center">
+        <button id="sBtn" class="btn-choice" onclick="selectLabel('single')">
+            Single <span class="hotkey-hint">[Key: 1]</span>
+        </button>
+      </div>
+      <div style="text-align:center">
+        <button id="mBtn" class="btn-choice" onclick="selectLabel('multiple')">
+            Multiple <span class="hotkey-hint">[Key: 2]</span>
+        </button>
+      </div>
     </div>
+
+    <button id="finishBtn" class="btn-finish hidden" onclick="showResults()">📊 Show Final Results</button>
+  </div>
+
+  <div id="resultsStep" class="card hidden">
+    <div style="display:flex; justify-content:space-between; align-items:center">
+        <h3>Evaluation Summary</h3>
+        <button class="btn-nav" onclick="location.reload()">🔄 Load New Test</button>
+    </div>
+    <p id="scoreSummary" style="font-size: 1.2rem;"></p>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>Report ID</th>
+          <th>Chat GPT</th>
+          <th>Your Label</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="resultsTableBody"></tbody>
+    </table>
   </div>
 </div>
 
 <script>
-  let reports = [];
+  let testData = [];
   let currentIndex = 0;
-  let results = {}; // Stores report_id: "single" or "multiple"
+  let userLabels = {}; // Stores { index: "label" }
 
   const $ = (id) => document.getElementById(id);
 
-  // Load and parse JSONL
-  async function loadFile() {
-    try {
-      const [fileHandle] = await window.showOpenFilePicker({
-        types: [{ description: 'JSONL Files', accept: { 'application/x-ndjson': ['.jsonl'] } }]
-      });
-      const file = await fileHandle.getFile();
-      const text = await file.text();
-      
-      reports = text.split('\n')
-        .filter(line => line.trim())
-        .map(line => JSON.parse(line));
-
-      if (reports.length > 0) {
-        currentIndex = 0;
-        results = {};
-        $('mainUI').style.display = 'block';
-        $('exportBtn').disabled = false;
-        renderReport();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  // Display current report
-  function renderReport() {
-    const report = reports[currentIndex];
-    $('reportTitle').textContent = `Report ID: ${report.id}`;
-    $('reportText').textContent = report.description || "No content";
-    $('counter').textContent = `Item ${currentIndex + 1} of ${reports.length}`;
-    window.scrollTo(0, 0);
-  }
-
-  // Save classification and move next
-  function classify(value) {
-    const reportId = reports[currentIndex].id;
-    results[reportId] = value;
+  // 1. Initial Load
+  $('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
     
-    if (currentIndex < reports.length - 1) {
-      currentIndex++;
-      renderReport();
-    } else {
-      alert("All reports classified! You can now export.");
-    }
-  }
+    const text = await file.text();
+    testData = text.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+    
+    if (testData.length === 0) return alert("Invalid File");
 
-  // Export results to JSONL
-  function exportResults() {
-    const output = Object.entries(results).map(([id, val]) => 
-      JSON.stringify({ report_id: id, classification: val })
-    ).join('\n');
-
-    const blob = new Blob([output], { type: 'application/x-ndjson' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'classified_reports.jsonl';
-    a.click();
-  }
-
-  // Event Listeners
-  $('loadBtn').addEventListener('click', loadFile);
-  $('exportBtn').addEventListener('click', exportResults);
-  $('singleBtn').addEventListener('click', () => classify('single'));
-  $('multipleBtn').addEventListener('click', () => classify('multiple'));
-  $('prevBtn').addEventListener('click', () => {
-    if (currentIndex > 0) {
-      currentIndex--;
-      renderReport();
-    }
+    $('setupStep').classList.add('hidden');
+    $('qaStep').classList.remove('hidden');
+    $('statusInfo').classList.remove('hidden');
+    renderItem();
   });
 
-  // Keyboard Shortcuts
+  // 2. Render UI for Current Item
+  function renderItem() {
+    const item = testData[currentIndex];
+    const userChoice = userLabels[currentIndex];
+
+    // Text & ID
+    $('reportIdDisplay').textContent = `Report ID: ${item.id}`;
+    $('reportText').textContent = item.description || "No text available.";
+    $('progressDisplay').textContent = `${currentIndex + 1} / ${testData.length}`;
+    
+    // Navigation state
+    $('prevBtn').disabled = (currentIndex === 0);
+    $('nextBtn').disabled = (currentIndex === testData.length - 1);
+    
+    // Choice button states
+    $('sBtn').className = 'btn-choice' + (userChoice === 'single' ? ' active-s' : '');
+    $('mBtn').className = 'btn-choice' + (userChoice === 'multiple' ? ' active-m' : '');
+
+    // Reset scroll
+    $('reportText').scrollTop = 0;
+
+    checkIfFinished();
+  }
+
+  // 3. User makes a selection
+  function selectLabel(label) {
+    userLabels[currentIndex] = label;
+    renderItem();
+    
+    // Optional: Auto-advance to next if not yet labeled
+    if (currentIndex < testData.length - 1) {
+        // setTimeout for a brief visual feedback before jumping
+        setTimeout(() => {
+            if (currentIndex < testData.length - 1) changeIndex(1);
+        }, 150);
+    }
+  }
+
+  // 4. Navigation
+  function changeIndex(delta) {
+    const newIdx = currentIndex + delta;
+    if (newIdx >= 0 && newIdx < testData.length) {
+        currentIndex = newIdx;
+        renderItem();
+    }
+  }
+
+  // 5. Validation
+  function checkIfFinished() {
+    const answeredCount = Object.keys(userLabels).length;
+    if (answeredCount === testData.length) {
+        $('finishBtn').classList.remove('hidden');
+    } else {
+        $('finishBtn').classList.add('hidden');
+    }
+  }
+
+  // 6. Final Results
+  function showResults() {
+    $('qaStep').classList.add('hidden');
+    $('resultsStep').classList.remove('hidden');
+    
+    let matches = 0;
+    const tbody = $('resultsTableBody');
+    tbody.innerHTML = "";
+    
+    testData.forEach((item, i) => {
+      const uLab = userLabels[i];
+      const cLab = item.chat_label;
+      const isMatch = uLab === cLab;
+      if (isMatch) matches++;
+
+      const row = `
+        <tr class="${isMatch ? 'match' : 'mismatch'}">
+          <td>${item.id}</td>
+          <td>${cLab.toUpperCase()}</td>
+          <td>${uLab ? uLab.toUpperCase() : 'N/A'}</td>
+          <td>${isMatch ? '✅ Correct' : '❌ Different'}</td>
+        </tr>`;
+      tbody.innerHTML += row;
+    });
+
+    const percent = Math.round((matches / testData.length) * 100);
+    $('scoreSummary').innerHTML = `<b>Accuracy: ${percent}%</b> (${matches} / ${testData.length} matches)`;
+  }
+
+  // 7. Keyboard Support
   document.addEventListener('keydown', (e) => {
-    if (reports.length === 0) return;
-    if (e.key === '1') classify('single');
-    if (e.key === '2') classify('multiple');
+    if ($('qaStep').classList.contains('hidden')) return;
+
+    if (e.key === '1') selectLabel('single');
+    if (e.key === '2') selectLabel('multiple');
+    if (e.key === 'ArrowLeft') changeIndex(-1);
+    if (e.key === 'ArrowRight') changeIndex(1);
   });
 </script>
-
 </body>
 </html>
