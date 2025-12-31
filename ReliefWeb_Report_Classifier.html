@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ReliefWeb QA Tool - Advanced</title>
+<title>ReliefWeb QA - Instant Feedback</title>
 <style>
   :root {
     --primary: #673ab7;
@@ -10,232 +10,175 @@
     --card: #fff;
     --single: #4caf50;
     --multiple: #ff9800;
-    --selected: #222;
+    --error: #f44336;
   }
-  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
-  .container { max-width: 950px; margin: auto; }
+  body { font-family: system-ui, sans-serif; background: var(--bg); margin: 0; padding: 20px; direction: ltr; }
+  .container { max-width: 900px; margin: auto; }
   .card { background: var(--card); padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
   
   header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ddd; margin-bottom: 20px; padding-bottom: 10px; }
   
   .report-text { 
-    white-space: pre-wrap; 
-    background: #fdfdfd; 
-    padding: 20px; 
-    border: 1px solid #e0e0e0; 
-    height: 400px; 
-    overflow-y: auto; 
-    font-size: 1.05rem;
-    line-height: 1.6;
-    border-radius: 8px;
-    margin-bottom: 20px;
+    white-space: pre-wrap; background: #fdfdfd; padding: 20px; border: 1px solid #e0e0e0; 
+    height: 350px; overflow-y: auto; font-size: 1.05rem; line-height: 1.6; border-radius: 8px; margin-bottom: 20px;
   }
   
-  .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-
-  .actions { display: flex; gap: 20px; justify-content: center; margin-top: 10px; padding-top: 20px; border-top: 1px solid #eee; }
+  .actions { display: flex; gap: 20px; justify-content: center; margin-top: 10px; }
   
-  button { padding: 12px 24px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; transition: all 0.2s; }
+  button { padding: 14px 28px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; font-size: 1.1rem; transition: all 0.2s; }
   button:disabled { opacity: 0.3; cursor: not-allowed; }
   
-  /* Styling for choice buttons */
-  .btn-choice { background: #e0e0e0; color: #444; border: 2px solid transparent; }
-  .btn-choice.active-s { background: var(--single); color: white; transform: scale(1.05); box-shadow: 0 4px 10px rgba(76, 175, 80, 0.3); }
-  .btn-choice.active-m { background: var(--multiple); color: white; transform: scale(1.05); box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); }
+  .btn-choice { background: #e0e0e0; color: #444; flex: 1; max-width: 200px; }
   
-  .btn-nav { background: #fff; border: 1px solid #ccc; color: #555; }
-  .btn-nav:hover { background: #eee; }
+  /* Feedback Styles */
+  .correct-selection { background: var(--single) !important; color: white !important; border: 3px solid #2e7d32; }
+  .wrong-selection { background: var(--error) !important; color: white !important; border: 3px solid #b71c1c; }
+  .chat-truth { border: 3px solid #2196f3; position: relative; }
+  .chat-truth::after { content: "CHAT'S CHOICE"; position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: #2196f3; font-weight: bold; }
 
-  .btn-finish { background: var(--primary); color: white; width: 100%; margin-top: 20px; font-size: 1.2rem; }
+  .feedback-area { text-align: center; margin-top: 20px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 1.2rem; }
+  .feedback-correct { background: #e8f5e9; color: #2e7d32; }
+  .feedback-wrong { background: #ffebee; color: #c62828; }
 
-  table { width: 100%; border-collapse: collapse; margin-top: 25px; border-radius: 8px; overflow: hidden; }
-  th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
-  th { background: var(--primary); color: white; }
-  
-  .match { background: #e8f5e9; color: #2e7d32; }
-  .mismatch { background: #ffebee; color: #c62828; }
+  .btn-next { background: var(--primary); color: white; margin-top: 15px; padding: 10px 40px; }
   
   .hidden { display: none; }
-  .hotkey-hint { font-size: 0.75rem; display: block; margin-top: 4px; font-weight: normal; opacity: 0.7; }
+  .progress { font-weight: bold; color: var(--primary); }
 </style>
 </head>
 <body>
 
 <div class="container">
   <header>
-    <h2>ReliefWeb QA Tool</h2>
-    <div id="statusInfo" class="hidden">Item <b id="progressDisplay">0 / 0</b></div>
+    <h2>QA Tool: Instant Feedback</h2>
+    <div id="statusInfo" class="hidden">Report <span id="progressDisplay" class="progress">0 / 0</span></div>
   </header>
   
   <div id="setupStep" class="card">
     <h3>1. Load Test Set</h3>
-    <p>Upload the <b>test_set_single_multiple.jsonl</b> file to start the evaluation:</p>
+    <p>Upload your <b>test_set.jsonl</b> file:</p>
     <input type="file" id="fileInput" accept=".jsonl">
   </div>
 
   <div id="qaStep" class="card hidden">
-    <div class="nav-bar">
-        <button class="btn-nav" id="prevBtn" onclick="changeIndex(-1)">⬅ Previous (Arrow Left)</button>
-        <h3 id="reportIdDisplay" style="margin:0">ID: -</h3>
-        <button class="btn-nav" id="nextBtn" onclick="changeIndex(1)">Next (Arrow Right) ➡</button>
-    </div>
-
+    <h3 id="reportIdDisplay">ID: -</h3>
     <div id="reportText" class="report-text"></div>
     
-    <div class="actions">
-      <div style="text-align:center">
-        <button id="sBtn" class="btn-choice" onclick="selectLabel('single')">
-            Single <span class="hotkey-hint">[Key: 1]</span>
-        </button>
-      </div>
-      <div style="text-align:center">
-        <button id="mBtn" class="btn-choice" onclick="selectLabel('multiple')">
-            Multiple <span class="hotkey-hint">[Key: 2]</span>
-        </button>
-      </div>
+    <div class="actions" id="actionButtons">
+      <button id="btn-single" class="btn-choice" onclick="handleChoice('single')">Single (1)</button>
+      <button id="btn-multiple" class="btn-choice" onclick="handleChoice('multiple')">Multiple (2)</button>
     </div>
 
-    <button id="finishBtn" class="btn-finish hidden" onclick="showResults()">📊 Show Final Results</button>
+    <div id="feedbackContainer" class="hidden">
+        <div id="feedbackMsg" class="feedback-area"></div>
+        <div style="text-align: center;">
+            <button id="nextBtn" class="btn-next" onclick="nextReport()">Next Report ➡</button>
+        </div>
+    </div>
   </div>
 
   <div id="resultsStep" class="card hidden">
-    <div style="display:flex; justify-content:space-between; align-items:center">
-        <h3>Evaluation Summary</h3>
-        <button class="btn-nav" onclick="location.reload()">🔄 Load New Test</button>
-    </div>
-    <p id="scoreSummary" style="font-size: 1.2rem;"></p>
-    
-    <table>
-      <thead>
-        <tr>
-          <th>Report ID</th>
-          <th>Chat GPT</th>
-          <th>Your Label</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody id="resultsTableBody"></tbody>
-    </table>
+    <h3>Final Summary</h3>
+    <p id="scoreSummary" style="font-size: 1.3rem;"></p>
+    <button class="btn-next" onclick="location.reload()">Restart</button>
   </div>
 </div>
 
 <script>
   let testData = [];
   let currentIndex = 0;
-  let userLabels = {}; // Stores { index: "label" }
+  let score = 0;
+  let isWaitingForNext = false;
 
   const $ = (id) => document.getElementById(id);
 
-  // 1. Initial Load
   $('fileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
     const text = await file.text();
     testData = text.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
     
-    if (testData.length === 0) return alert("Invalid File");
-
     $('setupStep').classList.add('hidden');
     $('qaStep').classList.remove('hidden');
     $('statusInfo').classList.remove('hidden');
     renderItem();
   });
 
-  // 2. Render UI for Current Item
   function renderItem() {
+    isWaitingForNext = false;
     const item = testData[currentIndex];
-    const userChoice = userLabels[currentIndex];
-
-    // Text & ID
     $('reportIdDisplay').textContent = `Report ID: ${item.id}`;
-    $('reportText').textContent = item.description || "No text available.";
+    $('reportText').textContent = item.description;
     $('progressDisplay').textContent = `${currentIndex + 1} / ${testData.length}`;
     
-    // Navigation state
-    $('prevBtn').disabled = (currentIndex === 0);
-    $('nextBtn').disabled = (currentIndex === testData.length - 1);
+    // Reset buttons
+    $('btn-single').className = 'btn-choice';
+    $('btn-multiple').className = 'btn-choice';
+    $('btn-single').disabled = false;
+    $('btn-multiple').disabled = false;
     
-    // Choice button states
-    $('sBtn').className = 'btn-choice' + (userChoice === 'single' ? ' active-s' : '');
-    $('mBtn').className = 'btn-choice' + (userChoice === 'multiple' ? ' active-m' : '');
-
-    // Reset scroll
+    $('feedbackContainer').classList.add('hidden');
     $('reportText').scrollTop = 0;
-
-    checkIfFinished();
   }
 
-  // 3. User makes a selection
-  function selectLabel(label) {
-    userLabels[currentIndex] = label;
-    renderItem();
-    
-    // Optional: Auto-advance to next if not yet labeled
-    if (currentIndex < testData.length - 1) {
-        // setTimeout for a brief visual feedback before jumping
-        setTimeout(() => {
-            if (currentIndex < testData.length - 1) changeIndex(1);
-        }, 150);
-    }
-  }
+  function handleChoice(userLabel) {
+    if (isWaitingForNext) return;
+    isWaitingForNext = true;
 
-  // 4. Navigation
-  function changeIndex(delta) {
-    const newIdx = currentIndex + delta;
-    if (newIdx >= 0 && newIdx < testData.length) {
-        currentIndex = newIdx;
-        renderItem();
-    }
-  }
+    const chatLabel = testData[currentIndex].chat_label;
+    const isCorrect = userLabel === chatLabel;
 
-  // 5. Validation
-  function checkIfFinished() {
-    const answeredCount = Object.keys(userLabels).length;
-    if (answeredCount === testData.length) {
-        $('finishBtn').classList.remove('hidden');
+    if (isCorrect) score++;
+
+    // Visual Feedback on buttons
+    const userBtn = $(`btn-${userLabel}`);
+    const chatBtn = $(`btn-${chatLabel}`);
+
+    if (isCorrect) {
+        userBtn.classList.add('correct-selection');
+        $('feedbackMsg').textContent = "✅ Correct! Matches Chat's classification.";
+        $('feedbackMsg').className = "feedback-area feedback-correct";
     } else {
-        $('finishBtn').classList.add('hidden');
+        userBtn.classList.add('wrong-selection');
+        chatBtn.classList.add('chat-truth');
+        $('feedbackMsg').textContent = `❌ Mismatch. Chat classified this as ${chatLabel.toUpperCase()}.`;
+        $('feedbackMsg').className = "feedback-area feedback-wrong";
+    }
+
+    // Disable buttons
+    $('btn-single').disabled = true;
+    $('btn-multiple').disabled = true;
+
+    // Show feedback and Next button
+    $('feedbackContainer').classList.remove('hidden');
+  }
+
+  function nextReport() {
+    currentIndex++;
+    if (currentIndex < testData.length) {
+        renderItem();
+    } else {
+        showFinalResults();
     }
   }
 
-  // 6. Final Results
-  function showResults() {
+  function showFinalResults() {
     $('qaStep').classList.add('hidden');
     $('resultsStep').classList.remove('hidden');
-    
-    let matches = 0;
-    const tbody = $('resultsTableBody');
-    tbody.innerHTML = "";
-    
-    testData.forEach((item, i) => {
-      const uLab = userLabels[i];
-      const cLab = item.chat_label;
-      const isMatch = uLab === cLab;
-      if (isMatch) matches++;
-
-      const row = `
-        <tr class="${isMatch ? 'match' : 'mismatch'}">
-          <td>${item.id}</td>
-          <td>${cLab.toUpperCase()}</td>
-          <td>${uLab ? uLab.toUpperCase() : 'N/A'}</td>
-          <td>${isMatch ? '✅ Correct' : '❌ Different'}</td>
-        </tr>`;
-      tbody.innerHTML += row;
-    });
-
-    const percent = Math.round((matches / testData.length) * 100);
-    $('scoreSummary').innerHTML = `<b>Accuracy: ${percent}%</b> (${matches} / ${testData.length} matches)`;
+    const percent = Math.round((score / testData.length) * 100);
+    $('scoreSummary').innerHTML = `You agreed with the Chat in <b>${percent}%</b> of cases.<br>(${score} out of ${testData.length})`;
   }
 
-  // 7. Keyboard Support
+  // Keyboard support
   document.addEventListener('keydown', (e) => {
     if ($('qaStep').classList.contains('hidden')) return;
-
-    if (e.key === '1') selectLabel('single');
-    if (e.key === '2') selectLabel('multiple');
-    if (e.key === 'ArrowLeft') changeIndex(-1);
-    if (e.key === 'ArrowRight') changeIndex(1);
+    
+    if (!isWaitingForNext) {
+        if (e.key === '1') handleChoice('single');
+        if (e.key === '2') handleChoice('multiple');
+    } else {
+        if (e.key === 'Enter' || e.key === ' ') nextReport();
+    }
   });
 </script>
 </body>
