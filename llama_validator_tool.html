@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Llama Sanity Validator (Full Logic)</title>
+<title>Llama Sanity Validator (Optimized)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root{
@@ -30,14 +30,14 @@
   .right { height: 85vh; position: sticky; top: 16px; }
   #reportCard { height: 100%; overflow-y: auto; }
   
-  /* Llama Reveal Style */
+  /* Llama Reveal Style - Now more prominent at the top */
   #llamaRevealBox { 
-    margin-top: 20px; padding: 15px; border-radius: 12px; border: 2px dashed var(--primary); 
-    background: #f3e5f5; display: none; text-align: center; animation: fadeIn 0.3s;
+    margin-bottom: 15px; padding: 15px; border-radius: 12px; border: 3px solid var(--primary); 
+    background: #f3e5f5; display: none; text-align: center; animation: slideDown 0.4s ease-out;
+    box-shadow: 0 4px 12px rgba(103, 58, 183, 0.2);
   }
-  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-  /* Summary Table Style */
   #summaryTable { width: 100%; border-collapse: collapse; margin-top: 15px; background: #fff; }
   #summaryTable th, #summaryTable td { border: 1px solid #ddd; padding: 10px; text-align: center; }
   #summaryTable th { background: var(--primary); color: white; }
@@ -65,8 +65,10 @@
   <div id="mainUI" class="split">
     <div id="leftCol" class="left">
       <div id="queryBox" class="card" style="margin-bottom:12px;"></div>
-      <div id="annotBox" class="card"></div>
+      
       <div id="llamaRevealBox"></div>
+
+      <div id="annotBox" class="card"></div>
     </div>
 
     <div id="rightCol" class="right">
@@ -97,12 +99,11 @@
   let reportsDb = {};
   let idx = 0;
   let answers = {};
-  let revealState = false; // false = judging, true = llama revealed
+  let revealState = false;
 
   const $ = (id)=>document.getElementById(id);
   const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
 
-  // --- Load Logic ---
   $("loadBtn").onclick = async () => {
     try {
       const [handle] = await window.showOpenFilePicker();
@@ -137,14 +138,12 @@
     $("exportBtn").disabled = false;
   }
 
-  // --- Rendering ---
   function render() {
     if(!data.length) return;
     const sample = data[idx];
     const key = keyOf(sample);
     const pack = answers[key] || { items: [], bottom_line: null, align: null };
     
-    // Reset Reveal State
     revealState = false;
     $("llamaRevealBox").style.display = "none";
     $("nextBtn").textContent = "Next (Reveal Llama) ➡";
@@ -152,10 +151,8 @@
     $("counterPill").textContent = `${idx + 1} / ${data.length}`;
     $("idLabel").textContent = `Q: ${sample.timeline_query_id} | R: ${sample.report_id}`;
 
-    // Query Box
     $("queryBox").innerHTML = `<h3>Timeline Query</h3><p>${(sample.timeline_query||[]).join("<br>") || "No query text provided."}</p>`;
 
-    // Annotations Box
     let html = `<h3>Per-Statement Judgments</h3>`;
     sample.items.forEach((it, i) => {
       const v = pack.items[i] || null;
@@ -185,13 +182,11 @@
       </div>`;
     $("annotBox").innerHTML = html;
 
-    // Report Highlight Logic
     const reportText = reportsDb[sample.report_id] || "Load Reports JSONL to see text.";
     const evidenceItems = sample.items.map((it, i) => ({ text: it.evidence || '', number: i + 1 }));
     $("reportCard").innerHTML = `<h3>Report ${sample.report_id}</h3><div>${highlight(escapeHtml(reportText), evidenceItems)}</div>`;
   }
 
-  // --- Actions ---
   function setVerdict(i, val) {
     const key = keyOf(data[idx]);
     if(!answers[key]) answers[key] = { items: [], bottom_line: null, align: null };
@@ -213,19 +208,16 @@
     render();
   }
 
-  // --- Next/Reveal Logic ---
   $("nextBtn").onclick = () => {
     const key = keyOf(data[idx]);
     const a = answers[key];
 
-    // Validation: Must answer before revealing
     if(!a || !a.bottom_line) {
       alert("Please select a Bottom Line judgment first!");
       return;
     }
 
     if(!revealState) {
-      // Step 1: Reveal Llama
       revealState = true;
       const llamaLabel = data[idx].llama_bottom_line;
       const userLabel = a.bottom_line;
@@ -233,14 +225,15 @@
       
       $("llamaRevealBox").style.display = "block";
       $("llamaRevealBox").innerHTML = `
-        <div style="font-size: 1.3rem;">Llama Verdict: <b>${llamaLabel}</b></div>
-        <div style="margin-top:5px; color: ${isMatch?'#2e7d32':'#d32f2f'}">
-          ${isMatch ? "✅ You matched with Llama!" : "❌ Disagreement with Llama"}
+        <div style="font-size: 1.4rem;">Llama Verdict: <b>${llamaLabel}</b></div>
+        <div style="margin-top:5px; font-weight: bold; font-size: 1.1rem; color: ${isMatch?'#2e7d32':'#d32f2f'}">
+          ${isMatch ? "✅ Match!" : "❌ Mismatch"}
         </div>
       `;
       $("nextBtn").textContent = "Move to Next Pair ➡";
+      // Scroll to top of left column to ensure verdict is seen
+      $("leftCol").scrollTop = 0;
     } else {
-      // Step 2: Actually move to next
       if(idx < data.length - 1) {
         idx++;
         render();
@@ -252,11 +245,9 @@
 
   $("prevBtn").onclick = () => { if(idx > 0) { idx--; render(); } };
 
-  // --- Export & Summary ---
   $("exportBtn").onclick = () => {
     $("mainUI").style.display = "none";
     $("summarySection").style.display = "block";
-    
     let matches = 0;
     let html = "";
     data.forEach((sample, i) => {
@@ -265,22 +256,12 @@
       const llamaL = sample.llama_bottom_line;
       const isMatch = userL && userL.toLowerCase() === llamaL.toLowerCase();
       if(isMatch) matches++;
-
-      html += `
-        <tr>
-          <td>${i+1}</td>
-          <td>Q:${sample.timeline_query_id} / R:${sample.report_id}</td>
-          <td>${llamaL}</td>
-          <td>${userL}</td>
-          <td class="${isMatch?'match':'mismatch'}">${isMatch?'MATCH':'MISMATCH'}</td>
-        </tr>`;
+      html += `<tr><td>${i+1}</td><td>Q:${sample.timeline_query_id}/R:${sample.report_id}</td><td>${llamaL}</td><td>${userL}</td><td class="${isMatch?'match':'mismatch'}">${isMatch?'MATCH':'MISMATCH'}</td></tr>`;
     });
-
     $("summaryBody").innerHTML = html;
     $("statsSummary").innerHTML = `<b>Final Accuracy vs Llama:</b> ${(matches/data.length*100).toFixed(1)}% (${matches}/${data.length})`;
   };
 
-  // --- Utilities (Highlight & Escape) ---
   function escapeHtml(str) { return (str || '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
   function highlight(html, evidenceItems) {
