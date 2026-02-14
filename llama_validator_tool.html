@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Llama Sanity Validator</title>
+<style>
+  :root{
+    --primary:#673ab7; --ok:#81c784; --no:#e57373; --muted:#f5f5f5; --ink:#222; --bg:#fafafa;
+  }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); margin:0; padding-bottom: 50px; }
+  header { background: var(--primary); color:#fff; padding: 12px 20px; font-weight: 600; display:flex; justify-content: space-between; }
+  main { padding: 16px; max-width: 1400px; margin:auto; }
+  .bar { display:flex; gap:12px; align-items:center; margin-bottom: 15px; } 
+  button { border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; background: var(--muted); font-weight: 500; }
+  button.primary { background: var(--primary); color:#fff; }
+  button.ok { background: var(--ok); color:#fff; }
+  button.no { background: var(--no); color:#fff; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom:12px; }
+  .split { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
+  .evidence-quote { font-family: monospace; background: #f9f9f9; padding: 8px; border-left: 3px solid #ddd; margin: 5px 0; font-size: 0.9rem; }
+  .llama-reveal { 
+    margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 1.2rem;
+    display: none; border: 2px dashed var(--primary); background: #f3e5f5;
+  }
+  .hl { background: #b3e5fc; }
+  #summaryTable { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  #summaryTable th, #summaryTable td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+  #summaryTable th { background: #f2f2f2; }
+  .match { color: green; font-weight: bold; }
+  .mismatch { color: red; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<header>
+  <span>Llama Sanity Validator</span>
+  <span id="counter">0 / 0</span>
+</header>
+
+<main>
+  <div class="bar">
+    <button id="loadBtn" class="primary">📂 1. Load Assignment</button>
+    <button id="loadReportsBtn" class="primary">📚 2. Load Reports</button>
+    <button id="nextBtn" class="ok" disabled>Next ➡</button>
+    <button id="exportBtn" style="margin-left:auto">💾 Export & Show Results</button>
+  </div>
+
+  <div id="mainContent" class="split">
+    <div id="leftCol">
+      <div id="queryBox" class="card">טען קבצים כדי להתחיל...</div>
+      <div id="annotBox" class="card"></div>
+      <div id="llamaBox" class="llama-reveal"></div>
+    </div>
+    <div id="rightCol">
+      <div id="reportCard" class="card" style="height: 80vh; overflow-y: auto;"></div>
+    </div>
+  </div>
+  
+  <div id="summaryContainer" class="card" style="display:none">
+    <h2>Summary Table</h2>
+    <div id="stats"></div>
+    <table id="summaryTable">
+      <thead>
+        <tr>
+          <th>Index</th>
+          <th>Query/Report ID</th>
+          <th>Llama Verdict</th>
+          <th>Your Verdict</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+  let data = [], reportsDb = {}, idx = 0, answers = {}, stage = "judging"; // stages: judging, revealing
+
+  const $ = (id) => document.getElementById(id);
+
+  async function loadFile(type) {
+    const [handle] = await window.showOpenFilePicker();
+    const file = await handle.getFile();
+    return await file.text();
+  }
+
+  $("loadBtn").onclick = async () => {
+    const text = await loadFile();
+    data = JSON.parse(text);
+    idx = 0;
+    render();
+    $("loadBtn").disabled = true;
+    $("nextBtn").disabled = false;
+  };
+
+  $("loadReportsBtn").onclick = async () => {
+    const text = await loadFile();
+    text.split('\n').forEach(line => {
+      if(!line.trim()) return;
+      const r = JSON.parse(line);
+      reportsDb[r.id] = r.description;
+    });
+    alert("Reports Loaded!");
+    render();
+  };
+
+  function render() {
+    if(!data.length) return;
+    const sample = data[idx];
+    $("counter").textContent = `${idx + 1} / ${data.length}`;
+    stage = "judging";
+    $("nextBtn").textContent = "Next ➡";
+    $("llamaBox").style.display = "none";
+
+    // Render Query
+    $("queryBox").innerHTML = `<h3>Timeline Query ID: ${sample.timeline_query_id}</h3><p>Report ID: ${sample.report_id}</p>`;
+
+    // Render Items
+    let html = `<h3>Statement Assessment</h3>`;
+    sample.items.forEach((it, i) => {
+      html += `<div>
+        <strong>${i+1}. ${it.hypothesis}</strong>
+        <div class="evidence-quote">${it.evidence || 'No evidence'}</div>
+      </div><hr>`;
+    });
+
+    html += `<div style="text-align:center; padding:10px;">
+      <p><strong>Is this report Relevant to the query?</strong></p>
+      <button id="btnRel" onclick="setFinal('Relevant')">Relevant</button>
+      <button id="btnIrrel" onclick="setFinal('Irrelevant')">Irrelevant</button>
+    </div>`;
+    $("annotBox").innerHTML = html;
+
+    // Render Report
+    const txt = reportsDb[sample.report_id] || "Report text not loaded.";
+    $("reportCard").innerHTML = `<h3>Full Report</h3><div style="white-space:pre-wrap">${txt}</div>`;
+  }
+
+  function setFinal(val) {
+    const sample = data[idx];
+    answers[idx] = { 
+      user: val, 
+      llama: sample.llama_bottom_line,
+      ids: `${sample.timeline_query_id} / ${sample.report_id}` 
+    };
+    $("btnRel").className = val === 'Relevant' ? 'ok' : '';
+    $("btnIrrel").className = val === 'Irrelevant' ? 'no' : '';
+    
+    // Reveal Llama
+    $("llamaBox").style.display = "block";
+    const isMatch = val.toLowerCase() === sample.llama_bottom_line.toLowerCase();
+    $("llamaBox").innerHTML = `Llama said: <strong>${sample.llama_bottom_line}</strong><br>
+                               ${isMatch ? "✅ You Agreed" : "❌ Disagreement"}`;
+    stage = "revealing";
+    $("nextBtn").textContent = "Move to Next Pair ➡";
+  }
+
+  $("nextBtn").onclick = () => {
+    if(stage === "judging") {
+      alert("Please make a judgment first!");
+      return;
+    }
+    if(idx < data.length - 1) {
+      idx++;
+      render();
+    } else {
+      alert("Finished all items! Click Export to see the summary.");
+      $("nextBtn").disabled = true;
+    }
+  };
+
+  $("exportBtn").onclick = () => {
+    $("mainContent").style.display = "none";
+    $("summaryContainer").style.display = "block";
+    let matchCount = 0;
+    let html = "";
+    
+    Object.keys(answers).forEach(k => {
+      const a = answers[k];
+      const match = a.user.toLowerCase() === a.llama.toLowerCase();
+      if(match) matchCount++;
+      html += `<tr>
+        <td>${parseInt(k)+1}</td>
+        <td>${a.ids}</td>
+        <td>${a.llama}</td>
+        <td>${a.user}</td>
+        <td class="${match ? 'match' : 'mismatch'}">${match ? 'MATCH' : 'MISMATCH'}</td>
+      </tr>`;
+    });
+
+    $("summaryBody").innerHTML = html;
+    $("stats").innerHTML = `<h3>Accuracy vs Llama: ${(matchCount / data.length * 100).toFixed(1)}% (${matchCount}/${data.length})</h3>`;
+  };
+</script>
+</body>
+</html>
