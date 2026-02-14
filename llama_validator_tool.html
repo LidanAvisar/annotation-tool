@@ -2,71 +2,89 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Llama Sanity Validator</title>
+<title>Llama Sanity Validator (Full Logic)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root{
-    --primary:#673ab7; --ok:#81c784; --no:#e57373; --muted:#f5f5f5; --ink:#222; --bg:#fafafa;
+    --primary:#673ab7; --ok:#81c784; --no:#e57373; --muted:#e0e0e0; --ink:#222; --bg:#fafafa; --card:#fff; --highlight-bg: #b3e5fc; 
   }
-  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); margin:0; padding-bottom: 50px; }
-  header { background: var(--primary); color:#fff; padding: 12px 20px; font-weight: 600; display:flex; justify-content: space-between; }
-  main { padding: 16px; max-width: 1400px; margin:auto; }
-  .bar { display:flex; gap:12px; align-items:center; margin-bottom: 15px; } 
-  button { border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; background: var(--muted); font-weight: 500; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); margin:0; }
+  header { background: var(--primary); color:#fff; padding: 12px 20px; font-size: 1.1rem; font-weight: 600; display: flex; justify-content: space-between; }
+  main { padding: 16px; max-width: 98%; margin:auto; }
+  .bar { display:flex; flex-wrap: wrap; align-items:center; gap:16px; margin-bottom: 12px; } 
+  button { border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; background: var(--muted); font-weight: 500; }
+  button:disabled { background: #e0e0e0; cursor: not-allowed; color: #9e9e9e; }
   button.primary { background: var(--primary); color:#fff; }
+  button.ghost { background: transparent; border:1px solid #ddd; }
   button.ok { background: var(--ok); color:#fff; }
   button.no { background: var(--no); color:#fff; }
-  .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom:12px; }
-  .split { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
-  .evidence-quote { font-family: monospace; background: #f9f9f9; padding: 8px; border-left: 3px solid #ddd; margin: 5px 0; font-size: 0.9rem; }
-  .llama-reveal { 
-    margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 1.2rem;
-    display: none; border: 2px dashed var(--primary); background: #f3e5f5;
+  button.toggle-on { outline: 2px solid #000; font-weight: bold; }
+  .pill { padding: 6px 10px; border-radius: 999px; background:#f1f1f1; font-weight: bold; }
+  .card { background: var(--card); border-radius: 12px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .itemBox { border-top:1px solid #eee; padding-top:10px; margin-top:10px; }
+  .hl { background: var(--highlight-bg); padding: 1px 0; }
+  .evidence-quote { color: #333; font-size: 0.9rem; margin-top: 8px; padding: 8px; background: #f7f7f7; border-radius: 4px; border: 1px solid #e5e5e5; font-family: monospace; white-space: pre-wrap; }
+  .hl-number { display: inline-block; background: var(--primary); color: #fff; font-size: 0.75em; padding: 1px 4px; border-radius: 4px; vertical-align: super; margin-left: 2px; }
+  .split { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .right { height: 85vh; position: sticky; top: 16px; }
+  #reportCard { height: 100%; overflow-y: auto; }
+  
+  /* Llama Reveal Style */
+  #llamaRevealBox { 
+    margin-top: 20px; padding: 15px; border-radius: 12px; border: 2px dashed var(--primary); 
+    background: #f3e5f5; display: none; text-align: center; animation: fadeIn 0.3s;
   }
-  .hl { background: #b3e5fc; }
-  #summaryTable { width: 100%; border-collapse: collapse; margin-top: 20px; }
-  #summaryTable th, #summaryTable td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-  #summaryTable th { background: #f2f2f2; }
-  .match { color: green; font-weight: bold; }
-  .mismatch { color: red; font-weight: bold; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Summary Table Style */
+  #summaryTable { width: 100%; border-collapse: collapse; margin-top: 15px; background: #fff; }
+  #summaryTable th, #summaryTable td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+  #summaryTable th { background: var(--primary); color: white; }
+  .match { color: #2e7d32; font-weight: bold; }
+  .mismatch { color: #d32f2f; font-weight: bold; }
 </style>
 </head>
 <body>
 
 <header>
-  <span>Llama Sanity Validator</span>
-  <span id="counter">0 / 0</span>
+  <span>ReliefWeb Sanity Validator</span>
+  <span id="counterPill" class="pill" style="background: rgba(255,255,255,0.2); color: white;">0 / 0</span>
 </header>
 
-<main>
+<main id="root">
   <div class="bar">
     <button id="loadBtn" class="primary">📂 1. Load Assignment</button>
     <button id="loadReportsBtn" class="primary">📚 2. Load Reports</button>
-    <button id="nextBtn" class="ok" disabled>Next ➡</button>
-    <button id="exportBtn" style="margin-left:auto">💾 Export & Show Results</button>
+    <button id="prevBtn" class="ghost" disabled>⬅ Prev</button>
+    <button id="nextBtn" class="ghost" disabled>Next (Reveal Llama) ➡</button>
+    <button id="exportBtn" class="primary" disabled>💾 Export & Show Summary</button> 
+    <span class="pill" id="idLabel"></span>
   </div>
 
-  <div id="mainContent" class="split">
-    <div id="leftCol">
-      <div id="queryBox" class="card">טען קבצים כדי להתחיל...</div>
+  <div id="mainUI" class="split">
+    <div id="leftCol" class="left">
+      <div id="queryBox" class="card" style="margin-bottom:12px;"></div>
       <div id="annotBox" class="card"></div>
-      <div id="llamaBox" class="llama-reveal"></div>
+      <div id="llamaRevealBox"></div>
     </div>
-    <div id="rightCol">
-      <div id="reportCard" class="card" style="height: 80vh; overflow-y: auto;"></div>
+
+    <div id="rightCol" class="right">
+      <div id="reportCard" class="card">Please load files to begin.</div>
     </div>
   </div>
-  
-  <div id="summaryContainer" class="card" style="display:none">
-    <h2>Summary Table</h2>
-    <div id="stats"></div>
+
+  <div id="summarySection" class="card" style="display:none; margin-top: 20px;">
+    <h2>Sanity Check Results</h2>
+    <div id="statsSummary" style="font-size: 1.2rem; margin-bottom: 10px;"></div>
     <table id="summaryTable">
       <thead>
         <tr>
-          <th>Index</th>
+          <th>#</th>
           <th>Query/Report ID</th>
-          <th>Llama Verdict</th>
-          <th>Your Verdict</th>
-          <th>Status</th>
+          <th>Llama Label</th>
+          <th>Your Label</th>
+          <th>Result</th>
         </tr>
       </thead>
       <tbody id="summaryBody"></tbody>
@@ -75,123 +93,206 @@
 </main>
 
 <script>
-  let data = [], reportsDb = {}, idx = 0, answers = {}, stage = "judging"; // stages: judging, revealing
+  let data = [];
+  let reportsDb = {};
+  let idx = 0;
+  let answers = {};
+  let revealState = false; // false = judging, true = llama revealed
 
-  const $ = (id) => document.getElementById(id);
+  const $ = (id)=>document.getElementById(id);
+  const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
 
-  async function loadFile(type) {
-    const [handle] = await window.showOpenFilePicker();
-    const file = await handle.getFile();
-    return await file.text();
-  }
-
+  // --- Load Logic ---
   $("loadBtn").onclick = async () => {
-    const text = await loadFile();
-    data = JSON.parse(text);
-    idx = 0;
-    render();
-    $("loadBtn").disabled = true;
-    $("nextBtn").disabled = false;
+    try {
+      const [handle] = await window.showOpenFilePicker();
+      const file = await handle.getFile();
+      data = JSON.parse(await file.text());
+      idx = 0;
+      enableUI();
+      render();
+    } catch(e) { console.error(e); }
   };
 
   $("loadReportsBtn").onclick = async () => {
-    const text = await loadFile();
-    text.split('\n').forEach(line => {
-      if(!line.trim()) return;
-      const r = JSON.parse(line);
-      reportsDb[r.id] = r.description;
-    });
-    alert("Reports Loaded!");
-    render();
+    try {
+      const [handle] = await window.showOpenFilePicker();
+      const file = await handle.getFile();
+      const text = await file.text();
+      text.split('\n').forEach(line => {
+        if(!line.trim()) return;
+        const r = JSON.parse(line);
+        reportsDb[r.id] = r.description;
+      });
+      alert("Reports Database Loaded!");
+      render();
+    } catch(e) { console.error(e); }
   };
 
+  function enableUI() {
+    $("loadBtn").disabled = true;
+    $("loadReportsBtn").disabled = false;
+    $("prevBtn").disabled = false;
+    $("nextBtn").disabled = false;
+    $("exportBtn").disabled = false;
+  }
+
+  // --- Rendering ---
   function render() {
     if(!data.length) return;
     const sample = data[idx];
-    $("counter").textContent = `${idx + 1} / ${data.length}`;
-    stage = "judging";
-    $("nextBtn").textContent = "Next ➡";
-    $("llamaBox").style.display = "none";
+    const key = keyOf(sample);
+    const pack = answers[key] || { items: [], bottom_line: null, align: null };
+    
+    // Reset Reveal State
+    revealState = false;
+    $("llamaRevealBox").style.display = "none";
+    $("nextBtn").textContent = "Next (Reveal Llama) ➡";
 
-    // Render Query
-    $("queryBox").innerHTML = `<h3>Timeline Query ID: ${sample.timeline_query_id}</h3><p>Report ID: ${sample.report_id}</p>`;
+    $("counterPill").textContent = `${idx + 1} / ${data.length}`;
+    $("idLabel").textContent = `Q: ${sample.timeline_query_id} | R: ${sample.report_id}`;
 
-    // Render Items
-    let html = `<h3>Statement Assessment</h3>`;
+    // Query Box
+    $("queryBox").innerHTML = `<h3>Timeline Query</h3><p>${(sample.timeline_query||[]).join("<br>") || "No query text provided."}</p>`;
+
+    // Annotations Box
+    let html = `<h3>Per-Statement Judgments</h3>`;
     sample.items.forEach((it, i) => {
-      html += `<div>
-        <strong>${i+1}. ${it.hypothesis}</strong>
-        <div class="evidence-quote">${it.evidence || 'No evidence'}</div>
-      </div><hr>`;
+      const v = pack.items[i] || null;
+      html += `
+        <div class="itemBox">
+          <div><b>${i+1}. Hypothesis:</b> ${it.hypothesis}</div>
+          <div class="evidence-quote"><b>Evidence:</b> ${it.evidence || '(none)'}</div>
+          <div style="margin-top:6px;">
+            <button class="${v==='Support'?'ok':''}" onclick="setVerdict(${i}, 'Support')">Support</button>
+            <button class="${v==='Not-Support'?'no':''}" onclick="setVerdict(${i}, 'Not-Support')">Not-Support</button>
+          </div>
+        </div>`;
     });
 
-    html += `<div style="text-align:center; padding:10px;">
-      <p><strong>Is this report Relevant to the query?</strong></p>
-      <button id="btnRel" onclick="setFinal('Relevant')">Relevant</button>
-      <button id="btnIrrel" onclick="setFinal('Irrelevant')">Irrelevant</button>
-    </div>`;
+    html += `
+      <div class="itemBox" style="border-top:2px solid #ddd; margin-top:20px;">
+        <div style="margin-top:8px; display:flex; gap:10px; align-items:center;">
+          <b>Timeline alignment:</b>
+          <button class="${pack.align==='Yes'?'toggle-on':''}" onclick="setAlign('Yes')">Yes</button>
+          <button class="${pack.align==='No'?'toggle-on':''}" onclick="setAlign('No')">No</button>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
+          <b>Bottom line:</b>
+          <button class="${pack.bottom_line==='Relevant'?'ok':''}" onclick="setBottom('Relevant')">Relevant</button>
+          <button class="${pack.bottom_line==='Irrelevant'?'no':''}" onclick="setBottom('Irrelevant')">Irrelevant</button>
+        </div>
+      </div>`;
     $("annotBox").innerHTML = html;
 
-    // Render Report
-    const txt = reportsDb[sample.report_id] || "Report text not loaded.";
-    $("reportCard").innerHTML = `<h3>Full Report</h3><div style="white-space:pre-wrap">${txt}</div>`;
+    // Report Highlight Logic
+    const reportText = reportsDb[sample.report_id] || "Load Reports JSONL to see text.";
+    const evidenceItems = sample.items.map((it, i) => ({ text: it.evidence || '', number: i + 1 }));
+    $("reportCard").innerHTML = `<h3>Report ${sample.report_id}</h3><div>${highlight(escapeHtml(reportText), evidenceItems)}</div>`;
   }
 
-  function setFinal(val) {
-    const sample = data[idx];
-    answers[idx] = { 
-      user: val, 
-      llama: sample.llama_bottom_line,
-      ids: `${sample.timeline_query_id} / ${sample.report_id}` 
-    };
-    $("btnRel").className = val === 'Relevant' ? 'ok' : '';
-    $("btnIrrel").className = val === 'Irrelevant' ? 'no' : '';
-    
-    // Reveal Llama
-    $("llamaBox").style.display = "block";
-    const isMatch = val.toLowerCase() === sample.llama_bottom_line.toLowerCase();
-    $("llamaBox").innerHTML = `Llama said: <strong>${sample.llama_bottom_line}</strong><br>
-                               ${isMatch ? "✅ You Agreed" : "❌ Disagreement"}`;
-    stage = "revealing";
-    $("nextBtn").textContent = "Move to Next Pair ➡";
+  // --- Actions ---
+  function setVerdict(i, val) {
+    const key = keyOf(data[idx]);
+    if(!answers[key]) answers[key] = { items: [], bottom_line: null, align: null };
+    answers[key].items[i] = val;
+    render();
   }
 
+  function setAlign(val) {
+    const key = keyOf(data[idx]);
+    if(!answers[key]) answers[key] = { items: [], bottom_line: null, align: null };
+    answers[key].align = val;
+    render();
+  }
+
+  function setBottom(val) {
+    const key = keyOf(data[idx]);
+    if(!answers[key]) answers[key] = { items: [], bottom_line: null, align: null };
+    answers[key].bottom_line = val;
+    render();
+  }
+
+  // --- Next/Reveal Logic ---
   $("nextBtn").onclick = () => {
-    if(stage === "judging") {
-      alert("Please make a judgment first!");
+    const key = keyOf(data[idx]);
+    const a = answers[key];
+
+    // Validation: Must answer before revealing
+    if(!a || !a.bottom_line) {
+      alert("Please select a Bottom Line judgment first!");
       return;
     }
-    if(idx < data.length - 1) {
-      idx++;
-      render();
+
+    if(!revealState) {
+      // Step 1: Reveal Llama
+      revealState = true;
+      const llamaLabel = data[idx].llama_bottom_line;
+      const userLabel = a.bottom_line;
+      const isMatch = llamaLabel.toLowerCase() === userLabel.toLowerCase();
+      
+      $("llamaRevealBox").style.display = "block";
+      $("llamaRevealBox").innerHTML = `
+        <div style="font-size: 1.3rem;">Llama Verdict: <b>${llamaLabel}</b></div>
+        <div style="margin-top:5px; color: ${isMatch?'#2e7d32':'#d32f2f'}">
+          ${isMatch ? "✅ You matched with Llama!" : "❌ Disagreement with Llama"}
+        </div>
+      `;
+      $("nextBtn").textContent = "Move to Next Pair ➡";
     } else {
-      alert("Finished all items! Click Export to see the summary.");
-      $("nextBtn").disabled = true;
+      // Step 2: Actually move to next
+      if(idx < data.length - 1) {
+        idx++;
+        render();
+      } else {
+        alert("Finished all items! Click 'Export & Show Summary'.");
+      }
     }
   };
 
+  $("prevBtn").onclick = () => { if(idx > 0) { idx--; render(); } };
+
+  // --- Export & Summary ---
   $("exportBtn").onclick = () => {
-    $("mainContent").style.display = "none";
-    $("summaryContainer").style.display = "block";
-    let matchCount = 0;
-    let html = "";
+    $("mainUI").style.display = "none";
+    $("summarySection").style.display = "block";
     
-    Object.keys(answers).forEach(k => {
-      const a = answers[k];
-      const match = a.user.toLowerCase() === a.llama.toLowerCase();
-      if(match) matchCount++;
-      html += `<tr>
-        <td>${parseInt(k)+1}</td>
-        <td>${a.ids}</td>
-        <td>${a.llama}</td>
-        <td>${a.user}</td>
-        <td class="${match ? 'match' : 'mismatch'}">${match ? 'MATCH' : 'MISMATCH'}</td>
-      </tr>`;
+    let matches = 0;
+    let html = "";
+    data.forEach((sample, i) => {
+      const a = answers[keyOf(sample)];
+      const userL = a ? a.bottom_line : "N/A";
+      const llamaL = sample.llama_bottom_line;
+      const isMatch = userL && userL.toLowerCase() === llamaL.toLowerCase();
+      if(isMatch) matches++;
+
+      html += `
+        <tr>
+          <td>${i+1}</td>
+          <td>Q:${sample.timeline_query_id} / R:${sample.report_id}</td>
+          <td>${llamaL}</td>
+          <td>${userL}</td>
+          <td class="${isMatch?'match':'mismatch'}">${isMatch?'MATCH':'MISMATCH'}</td>
+        </tr>`;
     });
 
     $("summaryBody").innerHTML = html;
-    $("stats").innerHTML = `<h3>Accuracy vs Llama: ${(matchCount / data.length * 100).toFixed(1)}% (${matchCount}/${data.length})</h3>`;
+    $("statsSummary").innerHTML = `<b>Final Accuracy vs Llama:</b> ${(matches/data.length*100).toFixed(1)}% (${matches}/${data.length})`;
   };
+
+  // --- Utilities (Highlight & Escape) ---
+  function escapeHtml(str) { return (str || '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+  function highlight(html, evidenceItems) {
+    let output = html;
+    evidenceItems.sort((a,b) => b.text.length - a.text.length).forEach(ev => {
+      if(!ev.text || ev.text.length < 5) return;
+      const escaped = ev.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      const re = new RegExp(`(${escaped})`, 'gi');
+      output = output.replace(re, `<span class="hl">$1</span><strong class="hl-number">(${ev.number})</strong>`);
+    });
+    return output.replace(/\n/g, "<br>");
+  }
 </script>
 </body>
 </html>
