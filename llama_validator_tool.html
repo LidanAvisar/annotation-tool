@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Llama Sanity Validator (Fix: Toggle Summary)</title>
+<title>Llama Sanity Validator (Auto-Irrelevant Fix)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root{
@@ -42,7 +42,6 @@
   #summaryTable th { background: var(--primary); color: white; }
   .match { color: #2e7d32; font-weight: bold; }
   .mismatch { color: #d32f2f; font-weight: bold; }
-
   .hidden { display: none !important; }
 </style>
 </head>
@@ -193,6 +192,13 @@
     const key = keyOf(data[idx]);
     if(!answers[key]) answers[key] = { items: [], bottom_line: null, align: null };
     answers[key].items[i] = val;
+
+    // --- 💡 Logic: Auto-set Bottom Line to Irrelevant if Not-Support is clicked 💡 ---
+    if (val === 'Not-Support') {
+        answers[key].bottom_line = 'Irrelevant';
+        answers[key].align = 'No';
+    }
+
     render();
   }
 
@@ -213,11 +219,7 @@
   $("nextBtn").onclick = () => {
     const key = keyOf(data[idx]);
     const a = answers[key];
-
-    if(!a || !a.bottom_line) {
-      alert("Please select a Bottom Line judgment first!");
-      return;
-    }
+    if(!a || !a.bottom_line) { alert("Please select a Bottom Line judgment first!"); return; }
 
     if(!revealState) {
       revealState = true;
@@ -235,28 +237,21 @@
       $("nextBtn").textContent = "Move to Next Pair ➡";
       $("leftCol").scrollTop = 0;
     } else {
-      if(idx < data.length - 1) {
-        idx++;
-        render();
-      } else {
-        alert("Finished all items! You can toggle the summary to see results.");
-      }
+      if(idx < data.length - 1) { idx++; render(); }
+      else { alert("Finished all items!"); }
     }
   };
 
   $("prevBtn").onclick = () => { if(idx > 0) { idx--; render(); } };
 
-  // --- Toggle Summary Functionality ---
   $("exportBtn").onclick = () => {
     if (!summaryVisible) {
-      // Switch to Summary View
       $("mainUI").classList.add("hidden");
       $("summarySection").classList.remove("hidden");
       $("exportBtn").textContent = "🔙 Back to Tagging";
       summaryVisible = true;
       updateSummaryTable();
     } else {
-      // Switch back to Tagging View
       $("summarySection").classList.add("hidden");
       $("mainUI").classList.remove("hidden");
       $("exportBtn").textContent = "📊 Toggle Summary & Export";
@@ -294,19 +289,11 @@
         }));
       }
     });
-    
-    if (out.length === 0) {
-        alert("No annotations to export.");
-        return;
-    }
-
     const blob = new Blob([out.join("\n")], {type:'application/x-ndjson'});
     const url = URL.createObjectURL(blob);
     const aEl = document.createElement('a');
-    aEl.href = url;
-    aEl.download = 'sanity_check_results.jsonl';
-    aEl.click();
-    URL.revokeObjectURL(url);
+    aEl.href = url; aEl.download = 'sanity_check_results.jsonl';
+    aEl.click(); URL.revokeObjectURL(url);
   }
 
   function escapeHtml(str) { return (str || '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
