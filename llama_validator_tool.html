@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Llama Sanity Validator (Optimized)</title>
+<title>Llama Sanity Validator (Fix: Toggle Summary)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root{
@@ -30,7 +30,6 @@
   .right { height: 85vh; position: sticky; top: 16px; }
   #reportCard { height: 100%; overflow-y: auto; }
   
-  /* Llama Reveal Style - Now more prominent at the top */
   #llamaRevealBox { 
     margin-bottom: 15px; padding: 15px; border-radius: 12px; border: 3px solid var(--primary); 
     background: #f3e5f5; display: none; text-align: center; animation: slideDown 0.4s ease-out;
@@ -43,6 +42,8 @@
   #summaryTable th { background: var(--primary); color: white; }
   .match { color: #2e7d32; font-weight: bold; }
   .mismatch { color: #d32f2f; font-weight: bold; }
+
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -58,26 +59,26 @@
     <button id="loadReportsBtn" class="primary">📚 2. Load Reports</button>
     <button id="prevBtn" class="ghost" disabled>⬅ Prev</button>
     <button id="nextBtn" class="ghost" disabled>Next (Reveal Llama) ➡</button>
-    <button id="exportBtn" class="primary" disabled>💾 Export & Show Summary</button> 
+    <button id="exportBtn" class="primary" disabled>📊 Toggle Summary & Export</button> 
     <span class="pill" id="idLabel"></span>
   </div>
 
   <div id="mainUI" class="split">
     <div id="leftCol" class="left">
       <div id="queryBox" class="card" style="margin-bottom:12px;"></div>
-      
       <div id="llamaRevealBox"></div>
-
       <div id="annotBox" class="card"></div>
     </div>
-
     <div id="rightCol" class="right">
       <div id="reportCard" class="card">Please load files to begin.</div>
     </div>
   </div>
 
-  <div id="summarySection" class="card" style="display:none; margin-top: 20px;">
-    <h2>Sanity Check Results</h2>
+  <div id="summarySection" class="card hidden" style="margin-top: 20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>Sanity Check Results</h2>
+        <button onclick="downloadJSONL()" class="primary">💾 Download JSONL</button>
+    </div>
     <div id="statsSummary" style="font-size: 1.2rem; margin-bottom: 10px;"></div>
     <table id="summaryTable">
       <thead>
@@ -100,6 +101,7 @@
   let idx = 0;
   let answers = {};
   let revealState = false;
+  let summaryVisible = false;
 
   const $ = (id)=>document.getElementById(id);
   const keyOf = (x)=>`${x.timeline_query_id}|${x.report_id}`;
@@ -231,23 +233,38 @@
         </div>
       `;
       $("nextBtn").textContent = "Move to Next Pair ➡";
-      // Scroll to top of left column to ensure verdict is seen
       $("leftCol").scrollTop = 0;
     } else {
       if(idx < data.length - 1) {
         idx++;
         render();
       } else {
-        alert("Finished all items! Click 'Export & Show Summary'.");
+        alert("Finished all items! You can toggle the summary to see results.");
       }
     }
   };
 
   $("prevBtn").onclick = () => { if(idx > 0) { idx--; render(); } };
 
+  // --- Toggle Summary Functionality ---
   $("exportBtn").onclick = () => {
-    $("mainUI").style.display = "none";
-    $("summarySection").style.display = "block";
+    if (!summaryVisible) {
+      // Switch to Summary View
+      $("mainUI").classList.add("hidden");
+      $("summarySection").classList.remove("hidden");
+      $("exportBtn").textContent = "🔙 Back to Tagging";
+      summaryVisible = true;
+      updateSummaryTable();
+    } else {
+      // Switch back to Tagging View
+      $("summarySection").classList.add("hidden");
+      $("mainUI").classList.remove("hidden");
+      $("exportBtn").textContent = "📊 Toggle Summary & Export";
+      summaryVisible = false;
+    }
+  };
+
+  function updateSummaryTable() {
     let matches = 0;
     let html = "";
     data.forEach((sample, i) => {
@@ -259,8 +276,38 @@
       html += `<tr><td>${i+1}</td><td>Q:${sample.timeline_query_id}/R:${sample.report_id}</td><td>${llamaL}</td><td>${userL}</td><td class="${isMatch?'match':'mismatch'}">${isMatch?'MATCH':'MISMATCH'}</td></tr>`;
     });
     $("summaryBody").innerHTML = html;
-    $("statsSummary").innerHTML = `<b>Final Accuracy vs Llama:</b> ${(matches/data.length*100).toFixed(1)}% (${matches}/${data.length})`;
-  };
+    $("statsSummary").innerHTML = `<b>Current Accuracy vs Llama:</b> ${(matches/data.length*100).toFixed(1)}% (${matches}/${data.length})`;
+  }
+
+  function downloadJSONL() {
+    const out = [];
+    data.forEach(sample => {
+      const a = answers[keyOf(sample)];
+      if (a) {
+        out.push(JSON.stringify({
+          timeline_query_id: sample.timeline_query_id,
+          report_id: sample.report_id,
+          user_label: a.bottom_line,
+          llama_label: sample.llama_bottom_line,
+          items_judgments: a.items,
+          timeline_alignment: a.align
+        }));
+      }
+    });
+    
+    if (out.length === 0) {
+        alert("No annotations to export.");
+        return;
+    }
+
+    const blob = new Blob([out.join("\n")], {type:'application/x-ndjson'});
+    const url = URL.createObjectURL(blob);
+    const aEl = document.createElement('a');
+    aEl.href = url;
+    aEl.download = 'sanity_check_results.jsonl';
+    aEl.click();
+    URL.revokeObjectURL(url);
+  }
 
   function escapeHtml(str) { return (str || '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
